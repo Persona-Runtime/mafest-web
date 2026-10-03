@@ -1,0 +1,18 @@
+# 비밀값과 머신별 설정은 Docker 빌드 컨텍스트에 절대 포함하지 않는다.
+.env
+.env.*
+
+# 로컬 의존성, 생성 산출물, 도구 캐시.
+node_modules/
+dist/
+.vite/
+coverage/
+*.local
+
+# 저장소 메타데이터와 빌드에 필요 없는 문서.
+.git/
+.DS_Store
+AGENTS.md
+feedback*.md
+README.md
+docs/

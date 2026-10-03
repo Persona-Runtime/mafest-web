@@ -1,0 +1,366 @@
+import { screen, waitFor, within } from "@testing-library/react";
+import { afterEach, describe, expect, test, vi } from "vitest";
+import {
+  ambiguous,
+  answered,
+  caveat,
+  errorOutcome,
+  fallback,
+  meta,
+  noResult,
+  notCollected,
+  refused,
+  unavailable,
+} from "./lib/fixtures";
+import { ApiError, type SearchResponse } from "./lib/types";
+import {
+  currentLocation,
+  renderApp,
+  resetViewport,
+  searchPath,
+  setViewport,
+  testApi,
+} from "./test/renderApp";
+
+/*
+ * 화면 테스트. 합성 API(지연 0 mock)로 화면 로직만 본다.
+ * 요소는 접근성 이름(role·label·text)으로 찾는다.
+ */
+
+afterEach(() => {
+  resetViewport();
+  vi.useRealTimers();
+});
+
+function respondWith(response: SearchResponse) {
+  return testApi({
+    search: vi.fn().mockResolvedValue(structuredClone(response)),
+  });
+}
+
+describe("홈", () => {
+  test("예시 칩은 meta에서 오고, 누르면 그 질문으로 검색한다", async () => {
+    const { user } = renderApp();
+    const chip = await screen.findByRole("link", {
+      name: new RegExp(meta.examples[0].question),
+    });
+    await user.click(chip);
+    expect(currentLocation()).toBe(`/search?q=${meta.examples[0].question}`);
+  });
+
+  test("상품군별 건수와 기준일을 보여준다", async () => {
+    renderApp();
+    const table = await screen.findByRole("table", {
+      name: /상품군별 상품 수/,
+    });
+    const row = within(table).getByRole("row", { name: /채권/ });
+    expect(row).toHaveTextContent("4,210");
+    expect(row).toHaveTextContent("2026-08-14");
+  });
+
+  test("질문을 입력해 제출하면 URL ?q=로 간다", async () => {
+    const { user } = renderApp();
+    await user.type(screen.getByLabelText("질문"), "  총보수 낮은 국내 ETF  ");
+    await user.click(screen.getByRole("button", { name: "검색" }));
+    expect(currentLocation()).toBe("/search?q=총보수 낮은 국내 ETF");
+  });
+
+  test("빈 질문은 보낼 수 없다", () => {
+    renderApp();
+    expect(screen.getByRole("button", { name: "검색" })).toBeDisabled();
+  });
+
+  test("meta가 실패해도 검색창은 쓸 수 있다", async () => {
+    renderApp({
+      api: testApi({
+        getMeta: vi.fn().mockRejectedValue(new ApiError(500, "x")),
+      }),
+    });
+    expect(
+      await screen.findByText(/예시 질문을 불러오지 못했습니다/),
+    ).toBeVisible();
+    expect(screen.getByLabelText("질문")).toBeEnabled();
+  });
+
+  test("비공식 고지와 투자 고지가 있다", () => {
+    renderApp();
+    expect(screen.getByText(/미래에셋증권과 무관/)).toBeInTheDocument();
+    expect(screen.getByText(/투자권유가 아닙니다/)).toBeInTheDocument();
+  });
+});
+
+describe("결과 — outcome 8종", () => {
+  test("answered: 답변·조건 칩·표·기준일·근거 패널", async () => {
+    renderApp({
+      api: respondWith(answered),
+      path: searchPath(answered.question),
+    });
+    expect(await screen.findByRole("heading", { name: "답변" })).toBeVisible();
+    expect(
+      screen.getByText(/SAMPLE 코스피200\(순자산 9\.1조 원/),
+    ).toBeVisible();
+    expect(screen.getByText("AI 생성 문장")).toBeVisible();
+    expect(screen.getAllByText("2026-08-21").length).toBeGreaterThan(0);
+    expect(screen.getByText("정렬: 순자산 ↓")).toBeVisible();
+    expect(
+      screen.getByText("총 1,180건 중 5건", { exact: false }),
+    ).toBeVisible();
+    expect(screen.getByText("어떻게 답했나")).toBeVisible();
+    expect(screen.getByText(/FROM sample_kr_etf/)).toBeInTheDocument();
+    // 인용 표시는 보조기술에도 전달된다.
+    expect(screen.getAllByText("답변에 인용,").length).toBe(3);
+  });
+
+  test("caveat: 주의 배지와 사유, 상품군별로 다른 기준일", async () => {
+    renderApp({ api: respondWith(caveat), path: searchPath(caveat.question) });
+    expect(await screen.findByText("주의")).toBeVisible();
+    const reasons = screen.getByRole("list", { name: "주의 사유" });
+    expect(reasons).toHaveTextContent("퇴직연금 가능 여부가 수집되지 않아");
+    expect(screen.getByText(/국내 ETF 기준일/)).toBeVisible();
+    expect(screen.getByText(/국내 ETN 기준일/)).toBeVisible();
+    expect(screen.getByText("일부만")).toBeVisible();
+  });
+
+  test("no_result: 안내 + 조건 칩 + 완화 질문", async () => {
+    renderApp({
+      api: respondWith(noResult),
+      path: searchPath(noResult.question),
+    });
+    expect(
+      await screen.findByRole("heading", {
+        name: "조건에 맞는 상품이 없습니다",
+      }),
+    ).toBeVisible();
+    expect(screen.getByText("총보수 < 0.01%")).toBeVisible();
+    const nav = screen.getByRole("navigation", { name: "조건을 바꿔 보세요" });
+    expect(within(nav).getAllByRole("link")).toHaveLength(2);
+  });
+
+  test("not_collected: 무엇이 없는지 한 줄", async () => {
+    renderApp({
+      api: respondWith(notCollected),
+      path: searchPath(notCollected.question),
+    });
+    expect(
+      await screen.findByRole("heading", {
+        name: "수집하지 않은 데이터입니다",
+      }),
+    ).toBeVisible();
+    expect(screen.getByText(/없는 항목: 거래량/)).toBeVisible();
+  });
+
+  test("unavailable: 일시 장애 문구와 다시 시도(수집 범위 밖과 구분)", async () => {
+    const api = respondWith(unavailable);
+    const { user } = renderApp({ api, path: searchPath(unavailable.question) });
+    expect(
+      await screen.findByText(
+        "지금 이 데이터를 불러올 수 없습니다. 잠시 뒤 다시 시도해 주세요.",
+      ),
+    ).toBeVisible();
+    expect(screen.queryByText("수집하지 않은 데이터입니다")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "다시 시도" }));
+    await waitFor(() => expect(api.search).toHaveBeenCalledTimes(2));
+  });
+
+  test("ambiguous: 선택지를 누르면 구체화한 질문으로 다시 검색", async () => {
+    const { user } = renderApp({
+      api: respondWith(ambiguous),
+      path: searchPath(ambiguous.question),
+    });
+    const nav = await screen.findByRole("navigation", {
+      name: "구체화한 질문으로 다시 검색",
+    });
+    await user.click(within(nav).getByRole("link", { name: /AA- 이상/ }));
+    expect(currentLocation()).toBe(
+      `/search?q=${ambiguous.clarify!.options[1].question}`,
+    );
+  });
+
+  test("refused: 이유와 대신 할 수 있는 질문", async () => {
+    renderApp({
+      api: respondWith(refused),
+      path: searchPath(refused.question),
+    });
+    expect(
+      await screen.findByRole("heading", { name: "답하지 않는 질문입니다" }),
+    ).toBeVisible();
+    const nav = screen.getByRole("navigation", {
+      name: "대신 할 수 있는 질문",
+    });
+    expect(within(nav).getAllByRole("link")).toHaveLength(2);
+  });
+
+  test("error: 요청 ID와 다시 시도", async () => {
+    renderApp({ api: respondWith(errorOutcome), path: searchPath("오류") });
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("답변을 만들지 못했습니다");
+    expect(alert).toHaveTextContent(errorOutcome.request_id);
+  });
+
+  test("generated_by=fallback: 모델 꺼짐 배너, 표는 정상", async () => {
+    renderApp({ api: respondWith(fallback), path: searchPath("q") });
+    expect(
+      await screen.findByText(
+        "답변 생성 모델이 꺼져 있어 조회 결과만 보여줍니다.",
+      ),
+    ).toBeVisible();
+    expect(screen.getByText("조회 결과만")).toBeVisible();
+    expect(
+      screen.getByRole("link", { name: /SAMPLE 코스피200/ }),
+    ).toBeVisible();
+  });
+});
+
+describe("결과 — HTTP 실패와 로딩", () => {
+  test("429: 남은 초를 세고 그동안 다시 시도를 막는다", async () => {
+    renderApp({
+      api: testApi({
+        search: vi
+          .fn()
+          .mockRejectedValue(new ApiError(429, "rate_limited", 12)),
+      }),
+      path: searchPath("q"),
+    });
+    expect(await screen.findByText("요청이 너무 많습니다")).toBeVisible();
+    expect(
+      screen.getByText("12초 뒤에 다시 시도할 수 있습니다."),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "다시 시도" })).toBeDisabled();
+  });
+
+  test("504: 시간 초과 안내", async () => {
+    renderApp({
+      api: testApi({
+        search: vi.fn().mockRejectedValue(new ApiError(504, "timeout")),
+      }),
+      path: searchPath("q"),
+    });
+    expect(await screen.findByText("시간이 초과됐습니다")).toBeVisible();
+  });
+
+  test("로딩 중에는 경과 초를 보여준다", async () => {
+    renderApp({
+      api: testApi({ search: vi.fn(() => new Promise<never>(() => {})) }),
+      path: searchPath("q"),
+    });
+    expect(await screen.findByRole("status")).toHaveTextContent("검색 중");
+  });
+
+  test("200자를 넘는 URL 질문은 보내지 않는다", async () => {
+    const api = testApi();
+    renderApp({ api, path: searchPath("가".repeat(201)) });
+    expect(await screen.findByText("질문 형식이 맞지 않습니다")).toBeVisible();
+    expect(api.search).not.toHaveBeenCalled();
+  });
+
+  test("질문을 바꾸면 이전 요청을 끊는다", async () => {
+    const signals: AbortSignal[] = [];
+    const api = testApi({
+      search: vi.fn((_q: string, signal?: AbortSignal) => {
+        signals.push(signal!);
+        return new Promise<never>(() => {});
+      }),
+    });
+    const { user } = renderApp({ api, path: searchPath("첫 질문") });
+    await waitFor(() => expect(signals).toHaveLength(1));
+    const input = screen.getByLabelText("질문");
+    await user.clear(input);
+    await user.type(input, "둘째 질문{Enter}");
+    await waitFor(() => expect(signals).toHaveLength(2));
+    expect(signals[0].aborted).toBe(true);
+  });
+});
+
+describe("상품 상세", () => {
+  test("좁은 화면: 카드를 누르면 상세 페이지로 간다", async () => {
+    const { user } = renderApp({ path: searchPath(answered.question) });
+    await user.click(
+      await screen.findByRole("link", { name: /SAMPLE 코스피200/ }),
+    );
+    expect(currentLocation()).toBe("/products/kr_etf/SMP001");
+    expect(
+      await screen.findByRole("heading", {
+        level: 1,
+        name: "SAMPLE 코스피200",
+      }),
+    ).toBeVisible();
+  });
+
+  test("넓은 화면: 표의 상품을 누르면 오른쪽 패널에 연다(URL에 p)", async () => {
+    setViewport(1280);
+    const { user } = renderApp({ path: searchPath(answered.question) });
+    const table = await screen.findByRole("table");
+    await user.click(
+      within(table).getByRole("link", { name: /DEMO 미국S&P500/ }),
+    );
+    expect(currentLocation()).toContain("p=kr_etf/DMO014");
+    const panel = screen.getByRole("complementary", { name: "상품 상세" });
+    expect(
+      await within(panel).findByRole("heading", { name: "DEMO 미국S&P500" }),
+    ).toBeVisible();
+    await user.click(within(panel).getByRole("button", { name: "닫기" }));
+    expect(
+      screen.queryByRole("complementary", { name: "상품 상세" }),
+    ).toBeNull();
+  });
+
+  test("넓은 화면: 숫자 열은 오른쪽 정렬, 정렬 축은 aria-sort", async () => {
+    setViewport(1280);
+    renderApp({ path: searchPath(answered.question) });
+    const table = await screen.findByRole("table");
+    const header = within(table).getByRole("columnheader", { name: "순자산" });
+    expect(header).toHaveAttribute("aria-sort", "descending");
+    expect(header).toHaveClass("num");
+    expect(within(table).getByRole("cell", { name: "+12.3%" })).toHaveClass(
+      "num",
+    );
+  });
+
+  test("값마다 출처·기준일, 관계는 관련 검색 링크", async () => {
+    renderApp({ path: "/products/kr_etf/SMP001" });
+    await screen.findByRole("heading", { level: 1, name: "SAMPLE 코스피200" });
+    expect(screen.getAllByText("계산값").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("미제공").length).toBeGreaterThan(0);
+    const link = screen.getByRole("link", { name: /SAMPLE전자/ });
+    expect(link).toHaveAttribute(
+      "href",
+      `/search?q=${encodeURIComponent("SAMPLE전자를 편입한 국내 ETF")}`,
+    );
+    // 대량 수집 억제: 이전/다음 상품 링크가 없다.
+    expect(screen.queryByRole("link", { name: /다음|이전/ })).toBeNull();
+  });
+
+  test("없는 상품은 404 안내", async () => {
+    renderApp({ path: "/products/kr_etf/NOPE" });
+    expect(await screen.findByText("찾을 수 없습니다")).toBeVisible();
+  });
+});
+
+describe("기타 화면", () => {
+  test("/about: 기록 정책과 고지", async () => {
+    renderApp({ path: "/about" });
+    expect(
+      screen.getByRole("heading", { level: 1, name: "동작 방식" }),
+    ).toBeVisible();
+    expect(screen.getByText(/IP 주소 등 접속 정보는 저장하지/)).toBeVisible();
+    expect(screen.getAllByText(/미래에셋증권과 무관/).length).toBeGreaterThan(
+      0,
+    );
+  });
+
+  test("알 수 없는 주소", () => {
+    renderApp({ path: "/personas" });
+    expect(
+      screen.getByRole("heading", { name: "페이지를 찾을 수 없습니다" }),
+    ).toBeVisible();
+  });
+
+  test("meta가 모델 꺼짐을 알리면 헤더에 배지", async () => {
+    renderApp({
+      api: testApi({
+        getMeta: vi.fn().mockResolvedValue({ ...meta, llm_available: false }),
+      }),
+    });
+    expect(await screen.findByText("생성 모델 꺼짐")).toBeVisible();
+  });
+});

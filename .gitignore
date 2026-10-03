@@ -1,0 +1,16 @@
+# --- 로컬 환경 ---
+.env
+.env.*
+!.env.example
+.DS_Store
+
+# --- Node ---
+node_modules/
+dist/
+.vite/
+coverage/
+*.local
+
+# --- 로컬 전용 메모 ---
+AGENTS.md
+feedback*.md
