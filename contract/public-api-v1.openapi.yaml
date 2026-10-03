@@ -1,0 +1,573 @@
+openapi: 3.1.0
+info:
+  title: 금융상품 질의 검색 공개 API
+  version: 1.0.0
+  description: |
+    mafest-web이 쓰는 공개 API(`/v1`). 사람이 읽는 설명은 mafest
+    `docs/plans/39_공개API_명세.md`, 이 파일은 기계가 검사하는 정본이다.
+
+    - 같은 origin. Traefik이 `/v1`을 mafest-api로 보낸다. CORS 없음.
+    - 인증·쿠키 없음. 모든 응답에 `X-Request-Id`.
+    - 도메인 키는 Evidence 계약 키(`bond kr_etf kr_etn xx_etf xx_etn fund`)만 쓴다.
+      라우터 내부 이름(`etf_kr` 등)은 내보내지 않는다.
+    - 이 파일을 고치면 mafest-web `src/lib/types.ts`·`validate.ts`와
+      `contract.test.ts`(픽스처 ↔ 이 스키마)가 함께 바뀌어야 한다.
+servers:
+  - url: /
+paths:
+  /v1/search:
+    post:
+      operationId: search
+      summary: 질문 하나를 해석·조회·생성해 답한다
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SearchRequest" }
+      responses:
+        "200":
+          description: outcome이 error가 아닌 모든 결과(answered … refused)
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/X-Request-Id" }
+            Cache-Control:
+              schema: { const: no-store }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SearchResponse" }
+        "422":
+          description: 질문이 비었거나 200자를 넘음, 본문이 JSON이 아님
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/X-Request-Id" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorBody" }
+        "429":
+          description: 동시 생성 상한 초과(앱) 또는 IP 요청 제한(Traefik)
+          headers:
+            Retry-After: { $ref: "#/components/headers/Retry-After" }
+            X-Request-Id: { $ref: "#/components/headers/X-Request-Id" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorBody" }
+        "500":
+          description: |
+            처리 중 예외. 본문은 반드시 outcome=error인 SearchResponse다
+            (request_id·가능하면 trace 포함). 웹은 이 본문을 그대로 그린다.
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/X-Request-Id" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SearchResponse" }
+        "504":
+          description: 전체 처리 시한(30초) 초과
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/X-Request-Id" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorBody" }
+
+  /v1/products/{domain}/{product_id}:
+    get:
+      operationId: getProduct
+      summary: 상품 상세(공개 허용 목록 컬럼만)
+      parameters:
+        - name: domain
+          in: path
+          required: true
+          schema: { $ref: "#/components/schemas/DomainKey" }
+        - name: product_id
+          in: path
+          required: true
+          description: 검색 결과 `rows[].product_id` 그대로. 웹은 URL 인코딩해서 보낸다.
+          schema: { type: string, minLength: 1, maxLength: 64 }
+      responses:
+        "200":
+          description: 상세
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/X-Request-Id" }
+            Cache-Control:
+              schema: { const: "public, max-age=300" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProductDetail" }
+        "404":
+          description: "없는 도메인(code: unknown_domain) 또는 상품(code: product_not_found)"
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/X-Request-Id" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorBody" }
+        "429":
+          description: IP 요청 제한(Traefik, 분당 30)
+          headers:
+            Retry-After: { $ref: "#/components/headers/Retry-After" }
+
+  /v1/meta:
+    get:
+      operationId: getMeta
+      summary: 상품군별 건수·기준일, 예시 질문, 생성 모델 가용 여부
+      responses:
+        "200":
+          description: 메타
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/X-Request-Id" }
+            Cache-Control:
+              schema: { const: "public, max-age=10" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Meta" }
+
+components:
+  headers:
+    X-Request-Id:
+      description: 요청 ID. SearchResponse.request_id와 같은 값.
+      schema: { type: string, minLength: 1, maxLength: 64 }
+    Retry-After:
+      description: 다시 시도까지 남은 초(정수). 앱의 429는 반드시 보낸다.
+      schema: { type: integer, minimum: 1 }
+
+  schemas:
+    DomainKey:
+      type: string
+      enum: [bond, kr_etf, kr_etn, xx_etf, xx_etn, fund]
+    Outcome:
+      type: string
+      enum:
+        [
+          answered,
+          caveat,
+          no_result,
+          not_collected,
+          unavailable,
+          ambiguous,
+          refused,
+          error,
+        ]
+    EvidenceStatus:
+      type: string
+      enum: [FOUND, PARTIAL, EMPTY, AXIS_ABSENT, AMBIGUOUS]
+    GeneratedBy:
+      description: "GenerationOutcome.generation_mode: LLM_GENERATED→llm, DETERMINISTIC_TEMPLATE→template, LLM_ERROR→fallback"
+      type: string
+      enum: [llm, template, fallback]
+    ClarifyKind:
+      type: string
+      enum: [missing_condition, domain_context, product_context, listing_market]
+    TraceStage:
+      type: string
+      enum: [route, query, compute, gate, verify, generate, render]
+    ColumnKind:
+      description: |
+        화면 정렬·표시 종류. money·percent·return·count는 숫자(오른쪽 정렬).
+        view_columns.format_kind 매핑: amount·price→money, ratio→percent, return→return,
+        risk_grade→grade, count(일수 포함)→count, date→date, 상품코드→code, 참거짓→bool, 그 밖→text.
+      type: string
+      enum: [text, code, money, percent, return, count, grade, date, bool]
+    ValueSource:
+      description: Evidence `src` 값 그대로. 웹 표기 원천값·외부 수집·계산값·미제공.
+      type: string
+      enum: [system-provided, external, computed, unavailable]
+    IsoDate:
+      type: string
+      pattern: "^\\d{4}-\\d{2}-\\d{2}$"
+    Scalar:
+      type: [string, number, boolean, "null"]
+
+    SearchRequest:
+      type: object
+      required: [question]
+      properties:
+        question:
+          type: string
+          description: 앞뒤 공백을 뺀 길이 1~200자. 넘으면 422.
+          minLength: 1
+          maxLength: 200
+
+    ErrorBody:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+          description: invalid_question · busy · rate_limited · timeout · unknown_domain · product_not_found · internal
+        message: { type: string }
+        request_id: { type: string }
+
+    Notice:
+      type: object
+      required: [code, text]
+      additionalProperties: false
+      properties:
+        code: { type: string, description: "명세 §4-6 표의 코드" }
+        text: { type: string, minLength: 1 }
+
+    Answer:
+      type: object
+      required: [text, generated_by, notices]
+      additionalProperties: false
+      properties:
+        text:
+          type: string
+          minLength: 1
+          description: 평문. Markdown·HTML 없음. 웹은 그대로 그린다.
+        generated_by: { $ref: "#/components/schemas/GeneratedBy" }
+        notices:
+          type: array
+          items: { $ref: "#/components/schemas/Notice" }
+
+    InterpretedDomain:
+      type: object
+      required: [domain, label, status, base_date]
+      additionalProperties: false
+      properties:
+        domain: { $ref: "#/components/schemas/DomainKey" }
+        label: { type: string }
+        status: { $ref: "#/components/schemas/EvidenceStatus" }
+        base_date:
+          description: 그 상품군의 기준일. 단일 as_of는 없다.
+          oneOf:
+            - { $ref: "#/components/schemas/IsoDate" }
+            - { type: "null" }
+
+    Condition:
+      type: object
+      required: [axis, label, op, value, display]
+      additionalProperties: false
+      properties:
+        axis:
+          {
+            type: string,
+            description: "뷰 컬럼 키(view_columns 정본) 또는 관계 축(holding 등)",
+          }
+        label: { type: string }
+        op:
+          type: string
+          enum: ["=", "!=", "<", "<=", ">", ">=", contains, in, between]
+        value: { $ref: "#/components/schemas/Scalar" }
+        display:
+          {
+            type: string,
+            description: "서버가 만든 칩 문구. 예: 총보수 < 0.2%",
+          }
+
+    Sort:
+      type: object
+      required: [axis, label, dir]
+      additionalProperties: false
+      properties:
+        axis: { type: string }
+        label: { type: string }
+        dir: { type: string, enum: [asc, desc] }
+
+    Interpretation:
+      type: object
+      required: [domains, conditions, sort, limit]
+      additionalProperties: false
+      properties:
+        domains:
+          type: array
+          items: { $ref: "#/components/schemas/InterpretedDomain" }
+        conditions:
+          type: array
+          items: { $ref: "#/components/schemas/Condition" }
+        sort:
+          oneOf:
+            - { $ref: "#/components/schemas/Sort" }
+            - { type: "null" }
+        limit:
+          oneOf:
+            - { type: integer, minimum: 1, maximum: 20 }
+            - { type: "null" }
+
+    Column:
+      type: object
+      required: [key, label, kind, emphasis]
+      additionalProperties: false
+      properties:
+        key: { type: string }
+        label: { type: string }
+        kind: { $ref: "#/components/schemas/ColumnKind" }
+        emphasis:
+          type: boolean
+          description: 정렬 축·조건 축이면 true. 모바일 카드는 강조 열 2개+등급 열만 싣는다.
+
+    CellValue:
+      type: object
+      required: [display, raw, src, note]
+      additionalProperties: false
+      properties:
+        display:
+          type: string
+          description: 서버가 포맷한 문자열(formatting.py). 수익률은 부호 포함(+12.3% / -4.1%).
+        raw: { $ref: "#/components/schemas/Scalar" }
+        src: { $ref: "#/components/schemas/ValueSource" }
+        note:
+          type: [string, "null"]
+          description: 이 값에 걸린 *_note 문장(view_columns.note_guard). 없으면 null.
+
+    ResultRow:
+      type: object
+      required: [product_id, name, cited, values]
+      additionalProperties: false
+      properties:
+        product_id: { type: string, minLength: 1, maxLength: 64 }
+        name: { type: string }
+        cited:
+          type: boolean
+          description: 답변 문장이 인용한 ref(검증 통과)면 true
+        values:
+          type: object
+          description: 키는 같은 묶음의 columns[].key 안에 있어야 한다(없는 열 값 금지).
+          additionalProperties: { $ref: "#/components/schemas/CellValue" }
+
+    ResultGroup:
+      type: object
+      required: [domain, total_count, truncated, columns, rows]
+      additionalProperties: false
+      properties:
+        domain: { $ref: "#/components/schemas/DomainKey" }
+        total_count: { type: integer, minimum: 0 }
+        truncated: { type: boolean, description: "total_count > rows 개수" }
+        columns:
+          type: array
+          items: { $ref: "#/components/schemas/Column" }
+        rows:
+          type: array
+          maxItems: 20
+          items: { $ref: "#/components/schemas/ResultRow" }
+
+    QuestionOption:
+      type: object
+      required: [label, question]
+      additionalProperties: false
+      properties:
+        label: { type: string, minLength: 1, maxLength: 20 }
+        question:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: 그대로 /v1/search에 다시 보낼 완결된 질문
+
+    Clarify:
+      type: object
+      required: [kind, reason, options]
+      additionalProperties: false
+      properties:
+        kind: { $ref: "#/components/schemas/ClarifyKind" }
+        reason: { type: string }
+        options:
+          type: array
+          minItems: 2
+          maxItems: 4
+          items: { $ref: "#/components/schemas/QuestionOption" }
+
+    TraceStep:
+      type: object
+      required: [stage, label, ms, detail, query]
+      additionalProperties: false
+      properties:
+        stage: { $ref: "#/components/schemas/TraceStage" }
+        label: { type: string }
+        ms: { type: number, minimum: 0 }
+        detail: { type: [string, "null"] }
+        query:
+          type: [string, "null"]
+          description: 실행한 SQL·Cypher. 매개변수 값은 끝에 `-- $1 = …` 주석으로. 질문에서 온 값만.
+
+    Trace:
+      type: object
+      required: [elapsed_ms, model, tokens, steps]
+      additionalProperties: false
+      properties:
+        elapsed_ms: { type: number, minimum: 0 }
+        model:
+          { type: [string, "null"], description: "LLM을 부르지 않았으면 null" }
+        tokens:
+          oneOf:
+            - type: object
+              required: [prompt, completion]
+              additionalProperties: false
+              properties:
+                prompt: { type: integer, minimum: 0 }
+                completion: { type: integer, minimum: 0 }
+            - { type: "null" }
+        steps:
+          type: array
+          items: { $ref: "#/components/schemas/TraceStep" }
+
+    SearchResponse:
+      type: object
+      required:
+        [
+          request_id,
+          question,
+          outcome,
+          answer,
+          interpretation,
+          results,
+          clarify,
+          suggestions,
+          trace,
+        ]
+      additionalProperties: false
+      properties:
+        request_id: { type: string, minLength: 1 }
+        question: { type: string, description: "정규화한 질문(앞뒤 공백 제거)" }
+        outcome: { $ref: "#/components/schemas/Outcome" }
+        answer: { $ref: "#/components/schemas/Answer" }
+        interpretation: { $ref: "#/components/schemas/Interpretation" }
+        results:
+          type: array
+          items: { $ref: "#/components/schemas/ResultGroup" }
+        clarify:
+          oneOf:
+            - { $ref: "#/components/schemas/Clarify" }
+            - { type: "null" }
+        suggestions:
+          type: array
+          maxItems: 3
+          items: { $ref: "#/components/schemas/QuestionOption" }
+        trace:
+          oneOf:
+            - { $ref: "#/components/schemas/Trace" }
+            - { type: "null" }
+      allOf:
+        # ambiguous ⇔ clarify 있음
+        - if:
+            properties: { outcome: { const: ambiguous } }
+          then:
+            properties: { clarify: { $ref: "#/components/schemas/Clarify" } }
+          else:
+            properties: { clarify: { type: "null" } }
+        # 표를 내는 outcome은 answered·caveat뿐이다
+        - if:
+            properties:
+              outcome:
+                enum:
+                  [
+                    no_result,
+                    not_collected,
+                    unavailable,
+                    ambiguous,
+                    refused,
+                    error,
+                  ]
+          then:
+            properties: { results: { maxItems: 0 } }
+
+    ProductField:
+      type: object
+      required: [key, label, kind, display, raw, src, note, as_of]
+      additionalProperties: false
+      properties:
+        key: { type: string }
+        label: { type: string }
+        kind: { $ref: "#/components/schemas/ColumnKind" }
+        display: { type: string, description: "미제공이면 —" }
+        raw: { $ref: "#/components/schemas/Scalar" }
+        src: { $ref: "#/components/schemas/ValueSource" }
+        note: { type: [string, "null"] }
+        as_of:
+          oneOf:
+            - { $ref: "#/components/schemas/IsoDate" }
+            - { type: "null" }
+
+    FieldGroup:
+      type: object
+      required: [key, label, fields]
+      additionalProperties: false
+      properties:
+        key:
+          type: string
+          description: basic · cost · return · rate · risk · distribution · size · index 중 하나
+        label: { type: string }
+        fields:
+          type: array
+          items: { $ref: "#/components/schemas/ProductField" }
+
+    RelationItem:
+      type: object
+      required: [id, name, display, question]
+      additionalProperties: false
+      properties:
+        id: { type: [string, "null"] }
+        name: { type: string }
+        display: { type: [string, "null"], description: "비중 등. 예: 24.1%" }
+        question:
+          type: [string, "null"]
+          description: 누르면 이어지는 검색 질문. null이면 웹이 이름으로 검색한다.
+
+    Relation:
+      type: object
+      required: [type, label, items]
+      additionalProperties: false
+      properties:
+        type: { type: string, enum: [holding, manager, issuer_group, index] }
+        label: { type: string }
+        items:
+          type: array
+          maxItems: 10
+          items: { $ref: "#/components/schemas/RelationItem" }
+
+    ProductDetail:
+      type: object
+      required: [domain, domain_label, product_id, name, groups, relations]
+      additionalProperties: false
+      properties:
+        domain: { $ref: "#/components/schemas/DomainKey" }
+        domain_label: { type: string }
+        product_id: { type: string }
+        name: { type: string }
+        groups:
+          type: array
+          items: { $ref: "#/components/schemas/FieldGroup" }
+        relations:
+          type: array
+          items: { $ref: "#/components/schemas/Relation" }
+
+    MetaDomain:
+      type: object
+      required: [domain, label, count, base_date]
+      additionalProperties: false
+      properties:
+        domain: { $ref: "#/components/schemas/DomainKey" }
+        label: { type: string }
+        count: { type: integer, minimum: 0 }
+        base_date:
+          oneOf:
+            - { $ref: "#/components/schemas/IsoDate" }
+            - { type: "null" }
+
+    MetaExample:
+      type: object
+      required: [id, category, question, expected_outcome]
+      additionalProperties: false
+      properties:
+        id:
+          {
+            type: string,
+            description: "gold 문항 id(E03 등). sweep에서 기대 outcome이 확인된 것만",
+          }
+        category:
+          {
+            type: string,
+            description: "칩 위 분류. 순위·복합 조건·개수·채권·수집 범위 밖·거절",
+          }
+        question: { type: string, maxLength: 200 }
+        expected_outcome: { $ref: "#/components/schemas/Outcome" }
+
+    Meta:
+      type: object
+      required: [domains, examples, llm_available]
+      additionalProperties: false
+      properties:
+        domains:
+          type: array
+          items: { $ref: "#/components/schemas/MetaDomain" }
+        examples:
+          type: array
+          maxItems: 6
+          items: { $ref: "#/components/schemas/MetaExample" }
+        llm_available:
+          type: boolean
+          description: vLLM /v1/models 확인 결과(10초 캐시, 2초 시한)

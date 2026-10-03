@@ -78,16 +78,10 @@ npm run container:verify   # Docker 필요. linux/amd64 이미지를 빌드해 �
 
 ## API 계약
 
-`src/lib/types.ts`(타입)와 `src/lib/validate.ts`(받는 즉시 검사)가 37 §3의 계약이다. 응답이 계약과 다르면 성공처럼 그리지 않고 "응답 형식 오류"로 보인다.
-
-37에서 정하지 않아 웹이 정한 것(P7에서 서버와 맞춘다):
-
-- **`suggestions: [{label, question}]`** (최상위, 선택). no_result의 완화 질문, refused의 "대신 할 수 있는 질문"(B3), not_collected의 대안 질문. 없으면 빈 배열로 본다.
-- `results[].rows[].values`의 키는 그 묶음의 `columns[].key` 안에 있어야 한다.
-- 상품 상세 필드에 `kind`(열 종류)를 둔다. 숫자 정렬에 쓴다.
-- `relations[].items[]`는 `{id, name, display, question}`. `question`이 없으면 이름으로 검색한다.
-- `outcome: "error"`를 200으로 주든 500으로 주든 웹은 같은 화면을 그린다(본문이 계약을 지키면).
-- 429는 `Retry-After`(초)를 읽는다.
+- 기계 정본: `contract/public-api-v1.openapi.yaml`(OpenAPI 3.1). 값 채우는 규칙은 mafest `docs/plans/39_공개API_명세.md`.
+- 웹 쪽 구현: `src/lib/types.ts`(타입)와 `src/lib/validate.ts`(받는 즉시 검사). 응답이 계약과 다르면 성공처럼 그리지 않고 "응답 형식 오류"로 보인다.
+- `src/contract.test.ts`가 합성 픽스처 전부를 yaml 스키마로 검사한다. yaml을 고치면 types·validate·픽스처를 함께 고친다.
+- mafest(P7)는 이 yaml을 `tests/contract/`로 복사해 실제 응답을 같은 스키마로 검사한다.
 
 ## 배포
 

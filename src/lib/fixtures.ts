@@ -56,6 +56,21 @@ function signed(value: number, digits = 1): string {
   return value > 0 ? `+${text}%` : value < 0 ? `-${text}%` : `${text}%`;
 }
 
+/** mafest formatting.format_risk_grade와 같은 표기. 1이 가장 위험하다. */
+const RISK_LABEL = [
+  "",
+  "매우 높은 위험",
+  "높은 위험",
+  "다소 높은 위험",
+  "보통 위험",
+  "낮은 위험",
+  "매우 낮은 위험",
+];
+
+function riskDisplay(grade: number): string {
+  return `${grade}등급(${RISK_LABEL[grade]})`;
+}
+
 function trillion(won: number): string {
   if (won >= 1e12) return `${(won / 1e12).toFixed(1)}조 원`;
   return `${Math.round(won / 1e8).toLocaleString("ko-KR")}억 원`;
@@ -171,7 +186,7 @@ function etfRow(seed: EtfSeed, cited: boolean): ResultRow {
       expense_ratio: cell(`${seed.fee.toFixed(2)}%`, seed.fee),
       aum: cell(trillion(seed.aum), seed.aum),
       return_1y: cell(signed(seed.ret), seed.ret, "computed"),
-      risk_grade: cell(`${seed.risk}등급`, seed.risk),
+      risk_grade: cell(riskDisplay(seed.risk), seed.risk),
     },
   };
 }
@@ -386,7 +401,7 @@ export const caveat: SearchResponse = {
             code: cell("DMON007", "DMON007"),
             expense_ratio: cell("0.18%", 0.18),
             aum: cell("1,240억 원", 1.24e11),
-            risk_grade: cell("1등급", 1),
+            risk_grade: cell(riskDisplay(1), 1),
           },
         },
         {
@@ -397,7 +412,12 @@ export const caveat: SearchResponse = {
             code: cell("SMPN012", "SMPN012"),
             expense_ratio: cell("0.15%", 0.15),
             aum: cell("860억 원", 8.6e10),
-            risk_grade: cell("3등급", 3, "system-provided", "발행사 제공 등급"),
+            risk_grade: cell(
+              riskDisplay(3),
+              3,
+              "system-provided",
+              "발행사 제공 등급",
+            ),
           },
         },
       ],
