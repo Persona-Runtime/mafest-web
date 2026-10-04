@@ -54,6 +54,19 @@ describe("픽스처", () => {
           ).toBe(true);
   });
 
+  test("공개 trace 쿼리에 매개변수 값·접속 정보가 없다(39 §2-11)", () => {
+    // 자리표시자($1, $name)만 허용한다. 값 주석(-- $1 = 5)이나 DSN·IP가 보이면 실패한다.
+    const VALUE_COMMENT = /--\s*\$\w+\s*=/;
+    const CONNECTION_INFO =
+      /postgres(ql)?:\/\/|\b\d{1,3}(\.\d{1,3}){3}\b|password/i;
+    for (const fixture of ALL_SEARCH_FIXTURES)
+      for (const step of fixture.trace?.steps ?? []) {
+        if (step.query === null) continue;
+        expect(step.query, fixture.request_id).not.toMatch(VALUE_COMMENT);
+        expect(step.query, fixture.request_id).not.toMatch(CONNECTION_INFO);
+      }
+  });
+
   test("합성 값만 쓴다: 상품명은 SAMPLE·DEMO로 시작한다", () => {
     for (const detail of PRODUCT_FIXTURES)
       expect(detail.name).toMatch(/^(SAMPLE|DEMO)/);
@@ -136,6 +149,26 @@ describe("계약 위반을 잡는다", () => {
 
   test("표를 내지 않는 outcome에 results가 있으면 거절한다", () => {
     expect(pathOf((r) => (r.outcome = "refused"))).toBe("results");
+  });
+
+  test("모르는 키는 그 키 경로로 거절한다(입력을 고치지 않는다)", () => {
+    expect(pathOf((r) => (r.debug = true))).toBe("debug");
+    const broken = clone(answered) as unknown as Record<string, unknown>;
+    broken.debug = true;
+    const before = structuredClone(broken);
+    expect(() => validateSearchResponse(broken)).toThrow(ContractError);
+    expect(broken).toEqual(before);
+  });
+
+  test("필수 nullable 셀 note가 빠지면 거절한다", () => {
+    expect(
+      pathOf((r) => {
+        const cell = (
+          r.results as { rows: { values: Record<string, object> }[] }[]
+        )[0].rows[0].values.code as Record<string, unknown>;
+        delete cell.note;
+      }),
+    ).toBe("results[0].rows[0].values.code.note");
   });
 
   test("상세의 출처 값은 정해진 네 가지뿐", () => {

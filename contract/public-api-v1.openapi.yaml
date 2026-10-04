@@ -7,11 +7,14 @@ info:
     `docs/plans/39_공개API_명세.md`, 이 파일은 기계가 검사하는 정본이다.
 
     - 같은 origin. Traefik이 `/v1`을 mafest-api로 보낸다. CORS 없음.
-    - 인증·쿠키 없음. 모든 응답에 `X-Request-Id`.
+    - 인증·쿠키 없음. 앱이 만든 모든 응답에 `X-Request-Id`(Traefik 429에는 없을 수 있다).
     - 도메인 키는 Evidence 계약 키(`bond kr_etf kr_etn xx_etf xx_etn fund`)만 쓴다.
       라우터 내부 이름(`etf_kr` 등)은 내보내지 않는다.
+    - 응답 객체는 전부 `additionalProperties: false`이고 선언한 필드가 모두 필수다.
+      웹 검사기(`validate.ts`)도 누락·추가 키를 똑같이 거절한다.
     - 이 파일을 고치면 mafest-web `src/lib/types.ts`·`validate.ts`와
-      `contract.test.ts`(픽스처 ↔ 이 스키마)가 함께 바뀌어야 한다.
+      `contract.test.ts`(픽스처 ↔ 이 스키마, 깨진 응답 ↔ 두 검사기)가 함께 바뀌어야 한다.
+    - 공개 trace·운영 로그 최소화 규칙은 `TraceStep.query` 설명과 39 §2-11을 따른다.
 servers:
   - url: /
 paths:
@@ -43,13 +46,11 @@ paths:
               schema: { $ref: "#/components/schemas/ErrorBody" }
         "429":
           description: |
-            동시 생성 상한 초과(앱, code=busy, JSON) 또는 IP 요청 제한(Traefik, text/plain).
+            Traefik IP 요청 제한. 본문은 text/plain일 수 있고
+            `request_id`·`X-Request-Id`를 보장하지 않는다.
           headers:
             Retry-After: { $ref: "#/components/headers/Retry-After" }
-            X-Request-Id: { $ref: "#/components/headers/X-Request-Id" }
           content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorBody" }
             text/plain:
               schema: { type: string }
         "500":
@@ -141,10 +142,10 @@ paths:
 components:
   headers:
     X-Request-Id:
-      description: 요청 ID. SearchResponse.request_id와 같은 값.
-      schema: { type: string, minLength: 1, maxLength: 64 }
+      description: 요청 ID. SearchResponse·ErrorBody의 request_id와 같은 값.
+      schema: { $ref: "#/components/schemas/RequestId" }
     Retry-After:
-      description: 다시 시도까지 남은 초(정수). 앱의 429는 반드시 보낸다.
+      description: 다시 시도까지 남은 초(정수). Traefik 429 또는 상세 503에서 보낼 수 있다.
       schema: { type: integer, minimum: 1 }
 
   schemas:
@@ -193,6 +194,12 @@ components:
       pattern: "^\\d{4}-\\d{2}-\\d{2}$"
     Scalar:
       type: [string, number, boolean, "null"]
+    RequestId:
+      description: |
+        요청 ID. 서버는 UUIDv4로 만들지만 계약은 형식만 고정한다(영숫자·`-`·`_`, 1~64자).
+        `X-Request-Id` 헤더, `SearchResponse.request_id`, `ErrorBody.request_id`가 이 형식을 공유한다.
+      type: string
+      pattern: "^[A-Za-z0-9_-]{1,64}$"
 
     SearchRequest:
       type: object
@@ -206,8 +213,10 @@ components:
 
     ErrorBody:
       description: |
-        앱이 내는 4xx·5xx 본문(검색 500은 제외 — SearchResponse). Traefik이 직접 내는
-        429(요청 제한)는 이 형식이 아니라 text/plain일 수 있다. 웹은 상태 코드만 본다.
+        앱이 내는 4xx·5xx 본문(검색 500은 제외 — SearchResponse). 세 필드 모두 필수.
+        Traefik이 직접 내는 429는 이 형식이 아니라 text/plain일 수 있다.
+        code별 HTTP: invalid_question 422 · timeout 504 · unknown_domain 404 ·
+        product_not_found 404 · unavailable 503 · internal 500.
       type: object
       required: [code, message, request_id]
       additionalProperties: false
@@ -217,7 +226,6 @@ components:
           enum:
             [
               invalid_question,
-              busy,
               timeout,
               unknown_domain,
               product_not_found,
@@ -225,14 +233,14 @@ components:
               internal,
             ]
         message: { type: string, minLength: 1 }
-        request_id: { type: string, minLength: 1 }
+        request_id: { $ref: "#/components/schemas/RequestId" }
 
     Notice:
       type: object
       required: [code, text]
       additionalProperties: false
       properties:
-        code: { type: string, description: "명세 §4-6 표의 코드" }
+        code: { type: string, description: "39 §2-5 notice 코드 표의 값" }
         text: { type: string, minLength: 1 }
 
     Answer:
@@ -380,7 +388,8 @@ components:
           type: string
           minLength: 1
           maxLength: 200
-          description: 그대로 /v1/search에 다시 보낼 완결된 질문
+          pattern: "\\S"
+          description: 그대로 /v1/search에 다시 보낼 완결된 질문(공백만으로 된 문자열 금지)
 
     Clarify:
       type: object
@@ -406,9 +415,16 @@ components:
         detail: { type: [string, "null"] }
         query:
           type: [string, "null"]
-          description: 실행한 SQL·Cypher. 매개변수 값은 끝에 `-- $1 = …` 주석으로. 질문에서 온 값만.
+          description: |
+            기본값 null. 공개 스위치가 켜져 있고 쿼리 모양이 공개 allowlist를 통과할 때만
+            parameterized SQL·Cypher를 자리표시자(`$1`, `$name`) 그대로 싣는다.
+            매개변수 값(`-- $1 = …` 주석 포함)은 어떤 경우에도 붙이지 않는다.
+            DSN·호스트·포트·DB 사용자명·내부 IP·Secret·파일 경로·원천 행 전체를 넣지 않는다.
 
     Trace:
+      description: |
+        "어떻게 답했나" 패널용 공개 실행 기록. 질문 원문은 SearchResponse.question에만 있고
+        trace에는 다시 싣지 않는다. 집계 질문(개수·합계·평균)은 compute 단계에 결과를 적는다.
       type: object
       required: [elapsed_ms, model, tokens, steps]
       additionalProperties: false
@@ -445,13 +461,17 @@ components:
         ]
       additionalProperties: false
       properties:
-        request_id: { type: string, minLength: 1 }
+        request_id: { $ref: "#/components/schemas/RequestId" }
         question: { type: string, description: "정규화한 질문(앞뒤 공백 제거)" }
         outcome: { $ref: "#/components/schemas/Outcome" }
         answer: { $ref: "#/components/schemas/Answer" }
         interpretation: { $ref: "#/components/schemas/Interpretation" }
         results:
           type: array
+          description: |
+            표를 내는 outcome(answered·caveat)에서만 채운다. 단, 상품 행이 없는 집계 답
+            (개수·합계·평균)은 answered·caveat이어도 `[]`이고 값은 answer.text와 trace compute
+            단계에 있다. 그 밖 outcome은 반드시 `[]`.
           items: { $ref: "#/components/schemas/ResultGroup" }
         clarify:
           oneOf:

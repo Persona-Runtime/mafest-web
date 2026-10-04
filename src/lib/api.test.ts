@@ -22,6 +22,23 @@ function respond(
   return fetchMock;
 }
 
+/** Traefik 요청 제한처럼 JSON이 아닌 본문. */
+function respondText(
+  status: number,
+  text: string,
+  headers: Record<string, string> = {},
+) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue(
+      new Response(text, {
+        status,
+        headers: { "Content-Type": "text/plain", ...headers },
+      }),
+    ),
+  );
+}
+
 async function failure(promise: Promise<unknown>): Promise<ApiError> {
   try {
     await promise;
@@ -51,11 +68,27 @@ describe("search", () => {
     expect(init.headers).not.toHaveProperty("Authorization");
   });
 
-  test("429는 Retry-After 초를 담는다", async () => {
-    respond(429, { code: "rate_limited" }, { "Retry-After": "17" });
+  test("Edge 429(text/plain, X-Request-Id 없음)는 rate_limited, Retry-After는 쓴다", async () => {
+    respondText(429, "Too Many Requests", { "Retry-After": "17" });
     const error = await failure(httpApi.search("q"));
     expect(error.status).toBe(429);
+    expect(error.code).toBe("rate_limited");
     expect(error.retryAfter).toBe(17);
+    expect(error.requestId).toBeNull();
+  });
+
+  test("429 JSON이라도 앱 오류로 믿지 않고 rate_limited로 분류한다", async () => {
+    respond(429, { code: "busy" });
+    const error = await failure(httpApi.search("q"));
+    expect(error.code).toBe("rate_limited");
+    expect(error.retryAfter).toBeNull();
+  });
+
+  test("FastAPI 기본 422(detail)는 code로 쓰지 않는다", async () => {
+    respond(422, { detail: [{ msg: "field required" }] });
+    const error = await failure(httpApi.search(""));
+    expect(error.status).toBe(422);
+    expect(error.code).toBe("http_422");
   });
 
   test("504는 timeout", async () => {
@@ -117,11 +150,22 @@ describe("products · meta", () => {
     expect(fetchMock.mock.calls[0][0]).toBe("/v1/products/kr_etf/A%2FB");
   });
 
-  test("없는 상품은 404", async () => {
-    respond(404, { code: "product_not_found" });
+  test("없는 상품은 404 ErrorBody의 code·request_id를 쓴다", async () => {
+    respond(404, {
+      code: "product_not_found",
+      message: "상품이 없습니다.",
+      request_id: "mock-404-0001",
+    });
     const error = await failure(httpApi.getProduct("kr_etf", "NOPE"));
     expect(error.status).toBe(404);
     expect(error.code).toBe("product_not_found");
+    expect(error.requestId).toBe("mock-404-0001");
+  });
+
+  test("필수 필드가 빠진 오류 본문은 ErrorBody로 믿지 않는다", async () => {
+    respond(404, { code: "product_not_found" });
+    const error = await failure(httpApi.getProduct("kr_etf", "NOPE"));
+    expect(error.code).toBe("http_404");
   });
 
   test("meta", async () => {

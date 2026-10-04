@@ -7,11 +7,19 @@ import {
   ALL_SEARCH_FIXTURES,
   ambiguous,
   answered,
+  caveatOutage,
+  count,
   meta,
+  noResult,
   PRODUCT_FIXTURES,
 } from "./lib/fixtures";
 import type { SearchResponse } from "./lib/types";
-import { validateSearchResponse } from "./lib/validate";
+import {
+  validateErrorBody,
+  validateMeta,
+  validateProductDetail,
+  validateSearchResponse,
+} from "./lib/validate";
 
 /**
  * 명세(contract/public-api-v1.openapi.yaml) ↔ 웹 픽스처 대조.
@@ -93,6 +101,22 @@ describe("명세 스키마", () => {
     ).not.toEqual([]);
   });
 
+  test("상품 행이 없는 집계 답은 answered + results [] + compute 단계다(39 §2-12)", () => {
+    expect(count.outcome).toBe("answered");
+    expect(count.results).toEqual([]);
+    expect(count.trace?.steps.some((s) => s.stage === "compute")).toBe(true);
+    expect(check("SearchResponse", count)).toEqual([]);
+  });
+
+  test("부분 장애: 정상 결과 + 장애 도메인은 caveat로 결과를 유지한다(39 §2-4)", () => {
+    expect(caveatOutage.outcome).toBe("caveat");
+    expect(caveatOutage.results.length).toBeGreaterThan(0);
+    expect(caveatOutage.answer.notices.map((n) => n.code)).toContain(
+      "STORE_BLOCKED",
+    );
+    expect(check("SearchResponse", caveatOutage)).toEqual([]);
+  });
+
   test("요청: 200자 초과 거절", () => {
     expect(check("SearchRequest", { question: "가".repeat(201) })).not.toEqual(
       [],
@@ -104,18 +128,38 @@ describe("명세 스키마", () => {
 /**
  * 같은 깨진 응답을 명세 스키마와 웹 검사기(validate.ts)가 **둘 다** 거절하는지 본다.
  * 한쪽만 거절하면 "명세는 금지하는데 웹은 받아 준다"(또는 반대)가 되어 계약이 둘로 갈린다.
- *
- * 의도한 비대칭 하나: 모르는 키가 **추가**된 응답은 스키마(서버 출력 검사)는 거절하고
- * 웹(읽는 쪽)은 무시한다. 필드 **누락**은 둘 다 거절한다.
+ * 필드 누락과 모르는 키 추가 모두 둘 다 거절한다(additionalProperties: false).
  */
 type Mutation = [string, SearchResponse, (r: Record<string, unknown>) => void];
 
+type Cells = { rows: { values: Record<string, Record<string, unknown>> }[] }[];
+
 const MUTATIONS: Mutation[] = [
+  ["request_id 누락", answered, (r) => delete r.request_id],
+  [
+    "answer.generated_by 누락",
+    answered,
+    (r) => delete (r.answer as Record<string, unknown>).generated_by,
+  ],
+  [
+    "interpretation.sort 누락",
+    answered,
+    (r) => delete (r.interpretation as Record<string, unknown>).sort,
+  ],
   ["suggestions 누락", answered, (r) => delete r.suggestions],
   ["trace 누락", answered, (r) => delete r.trace],
   ["clarify 누락", answered, (r) => delete r.clarify],
   ["answered에 clarify", answered, (r) => (r.clarify = ambiguous.clarify)],
   ["refused에 results", answered, (r) => (r.outcome = "refused")],
+  ["no_result에 results", noResult, (r) => (r.results = answered.results)],
+  [
+    "ambiguous로 바꾸고 clarify null",
+    answered,
+    (r) => {
+      r.outcome = "ambiguous";
+      r.results = [];
+    },
+  ],
   ["ambiguous에 clarify null", ambiguous, (r) => (r.clarify = null)],
   [
     "clarify 선택지 1개",
@@ -164,6 +208,38 @@ const MUTATIONS: Mutation[] = [
       ).domains[0].domain = "etf_kr";
     },
   ],
+  ["모르는 최상위 키", answered, (r) => (r.debug = true)],
+  [
+    "모르는 셀 키",
+    answered,
+    (r) => ((r.results as Cells)[0].rows[0].values.code.extra = 1),
+  ],
+  [
+    "모르는 trace 단계 키",
+    answered,
+    (r) =>
+      ((r.trace as { steps: Record<string, unknown>[] }).steps[0].params = [5]),
+  ],
+  ["request_id 65자", answered, (r) => (r.request_id = "a".repeat(65))],
+  ["request_id 허용 밖 문자", answered, (r) => (r.request_id = "req id/1")],
+  [
+    "answer.text 빈 문자열",
+    answered,
+    (r) => ((r.answer as { text: string }).text = ""),
+  ],
+  [
+    "조건 op 목록 밖",
+    noResult,
+    (r) => {
+      (r.interpretation as { conditions: { op: string }[] }).conditions[0].op =
+        "like";
+    },
+  ],
+  [
+    "suggestions 질문이 공백뿐",
+    answered,
+    (r) => (r.suggestions = [{ label: "l", question: "   " }]),
+  ],
   [
     "셀 note 누락",
     answered,
@@ -191,16 +267,43 @@ describe("명세 ↔ 웹 검사기 일치", () => {
     ).toThrow();
   });
 
-  test("추가 키: 명세는 거절, 웹은 무시(의도한 비대칭)", () => {
-    const extra = { ...structuredClone(answered), debug: true };
-    expect(check("SearchResponse", extra)).not.toEqual([]);
-    expect(() => validateSearchResponse(structuredClone(extra))).not.toThrow();
+  test("상세·메타의 모르는 키도 둘 다 거절", () => {
+    const detail = { ...structuredClone(PRODUCT_FIXTURES[0]), debug: true };
+    expect(check("ProductDetail", detail)).not.toEqual([]);
+    expect(() => validateProductDetail(detail)).toThrow();
+    const extraMeta = { ...structuredClone(meta), build: "x" };
+    expect(check("Meta", extraMeta)).not.toEqual([]);
+    expect(() => validateMeta(extraMeta)).toThrow();
+  });
+});
+
+describe("ErrorBody: 명세 ↔ 웹 검사기 일치", () => {
+  const ok = {
+    code: "invalid_question",
+    message: "질문은 1~200자여야 합니다.",
+    request_id: "mock-invalid-0001",
+  };
+
+  test("정상 본문은 둘 다 받는다", () => {
+    expect(check("ErrorBody", ok)).toEqual([]);
+    expect(() => validateErrorBody(structuredClone(ok))).not.toThrow();
   });
 
-  test("ErrorBody: code·message·request_id 필수, code는 목록 안", () => {
-    const ok = { code: "busy", message: "m", request_id: "r" };
-    expect(check("ErrorBody", ok)).toEqual([]);
-    expect(check("ErrorBody", { code: "busy" })).not.toEqual([]);
-    expect(check("ErrorBody", { ...ok, code: "oops" })).not.toEqual([]);
+  const BROKEN: [string, Record<string, unknown>][] = [
+    ["code 누락", { message: ok.message, request_id: ok.request_id }],
+    ["message 누락", { code: ok.code, request_id: ok.request_id }],
+    ["request_id 누락", { code: ok.code, message: ok.message }],
+    ["미등록 code", { ...ok, code: "rate_limited" }],
+    ["빈 message", { ...ok, message: "" }],
+    ["request_id 65자", { ...ok, request_id: "a".repeat(65) }],
+    ["모르는 키", { ...ok, detail: "x" }],
+  ];
+
+  test.each(BROKEN)("%s: 둘 다 거절", (_, body) => {
+    expect(check("ErrorBody", body), "명세가 받아 줌").not.toEqual([]);
+    expect(
+      () => validateErrorBody(structuredClone(body)),
+      "웹이 받아 줌",
+    ).toThrow();
   });
 });

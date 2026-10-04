@@ -356,7 +356,9 @@ describe("기타 화면", () => {
       screen.getByRole("heading", { level: 1, name: "동작 방식" }),
     ).toBeVisible();
     expect(screen.getByText(/IP 주소 등 접속 정보는 저장하지/)).toBeVisible();
-    expect(screen.getByText(/질문 원문은 저장하지 않습니다/)).toBeVisible();
+    expect(
+      screen.getByText(/질문 원문과 질문 해시는 저장하지 않습니다/),
+    ).toBeVisible();
     expect(screen.getAllByText(/미래에셋증권과 무관/).length).toBeGreaterThan(
       0,
     );

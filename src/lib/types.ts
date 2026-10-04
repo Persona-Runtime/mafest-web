@@ -1,8 +1,9 @@
 /**
- * 공개 API 계약 (mafest `docs/plans/37_공개웹_최종계획.md` §3).
+ * 공개 API 계약. 정본은 `contract/public-api-v1.openapi.yaml`, 값 채우는 규칙은
+ * mafest `docs/plans/39_공개API_명세.md`다.
  *
- * 서버 계약이 바뀌면 이 파일, validate.ts, 픽스처를 함께 고친다. 계약 테스트
- * (validate.test.ts)가 픽스처 전부를 validate.ts로 검사하므로 셋이 어긋나면 실패한다.
+ * yaml이 바뀌면 이 파일, validate.ts, 픽스처를 함께 고친다. contract.test.ts가 픽스처를
+ * yaml로, 같은 깨진 응답을 yaml과 validate.ts 둘 다로 검사하므로 어긋나면 실패한다.
  *
  * 도메인 키는 Evidence 계약 키다. 라우터 내부 이름(etf_kr 등)은 API에 나오지 않는다.
  */
@@ -83,6 +84,45 @@ export const VALUE_SOURCES = [
   "unavailable",
 ] as const;
 export type ValueSource = (typeof VALUE_SOURCES)[number];
+
+export const CONDITION_OPS = [
+  "=",
+  "!=",
+  "<",
+  "<=",
+  ">",
+  ">=",
+  "contains",
+  "in",
+  "between",
+] as const;
+
+export const RELATION_TYPES = [
+  "holding",
+  "manager",
+  "issuer_group",
+  "index",
+] as const;
+
+/** 앱이 만드는 오류 본문의 code. yaml `ErrorBody.code` enum과 같다. */
+export const ERROR_CODES = [
+  "invalid_question",
+  "timeout",
+  "unknown_domain",
+  "product_not_found",
+  "unavailable",
+  "internal",
+] as const;
+export type ErrorCode = (typeof ERROR_CODES)[number];
+
+/**
+ * 앱이 만드는 4xx·5xx 본문(검색 500 제외). Traefik 요청 제한 429는 이 형식이 아닐 수 있다.
+ */
+export interface ErrorBody {
+  code: ErrorCode;
+  message: string;
+  request_id: string;
+}
 
 export interface Notice {
   code: string;
@@ -189,8 +229,8 @@ export interface SearchResponse {
   results: ResultGroup[];
   clarify: Clarify | null;
   /**
-   * [계약 추가 제안] 이어서 할 수 있는 질문. no_result(완화 질문), refused(대신 할 수
-   * 있는 질문, B3), not_collected에서 쓴다. 서버가 안 주면 빈 배열로 본다.
+   * 이어서 할 수 있는 질문. no_result(완화 질문), refused(대신 할 수 있는 질문, B3),
+   * not_collected에서 쓴다. 없으면 서버가 `[]`을 보낸다. 키 누락은 계약 위반이다.
    */
   suggestions: QuestionOption[];
   trace: Trace | null;
@@ -270,7 +310,9 @@ export interface SearchApi {
 }
 
 /**
- * HTTP 실패. 429는 retryAfter(초)를 함께 준다. 응답 본문이 계약과 다르면
+ * HTTP 실패. 429는 Traefik 요청 제한이므로 retryAfter(초)와 "rate_limited"를 쓴다.
+ * 그 밖에는 앱 ErrorBody의 code를 그대로 쓰고, ErrorBody로 읽을 수 없는 실패는
+ * "http_<status>"다. 성공 응답 본문이 계약과 다르면
  * code="invalid_response", 연결 자체가 안 되면 status=0·code="network".
  */
 export class ApiError extends Error {

@@ -309,7 +309,7 @@ export const answered: SearchResponse = {
         ms: 38,
         detail: "5행",
         query:
-          "SELECT code, name, expense_ratio, aum, return_1y, risk_grade\n  FROM sample_kr_etf\n ORDER BY aum DESC NULLS LAST\n LIMIT $1;  -- $1 = 5",
+          "SELECT code, name, expense_ratio, aum, return_1y, risk_grade\n  FROM sample_kr_etf\n ORDER BY aum DESC NULLS LAST\n LIMIT $1;",
       },
       {
         stage: "gate",
@@ -440,7 +440,7 @@ export const caveat: SearchResponse = {
         ms: 61,
         detail: "국내 ETF 7행 · 국내 ETN 2행(4행 제외)",
         query:
-          "SELECT code, name, expense_ratio, aum, return_1y, risk_grade\n  FROM sample_kr_etf\n WHERE pension_eligible = $1 AND expense_ratio < $2\n ORDER BY aum DESC NULLS LAST\n LIMIT $3;  -- $1 = true, $2 = 0.2, $3 = 10",
+          "SELECT code, name, expense_ratio, aum, return_1y, risk_grade\n  FROM sample_kr_etf\n WHERE pension_eligible = $1 AND expense_ratio < $2\n ORDER BY aum DESC NULLS LAST\n LIMIT $3;",
       },
       {
         stage: "gate",
@@ -524,7 +524,7 @@ export const noResult: SearchResponse = {
         ms: 22,
         detail: "0행",
         query:
-          "SELECT code, name, expense_ratio, return_1y\n  FROM sample_kr_etf\n WHERE expense_ratio < $1 AND return_1y >= $2\n LIMIT $3;  -- $1 = 0.01, $2 = 50, $3 = 10",
+          "SELECT code, name, expense_ratio, return_1y\n  FROM sample_kr_etf\n WHERE expense_ratio < $1 AND return_1y >= $2\n LIMIT $3;",
       },
       {
         stage: "gate",
@@ -630,7 +630,7 @@ export const unavailable: SearchResponse = {
         ms: 3002,
         detail: "관계 조회 실패 · 연결 시간 초과",
         query:
-          "SELECT * FROM cypher('sample_graph', $$\n  MATCH (e:ETF)-[h:HOLDS]->(c:Company {name: $name})\n  RETURN e.code, h.weight ORDER BY h.weight DESC LIMIT 10\n$$) AS (code agtype, weight agtype);  -- $name = 'SAMPLE전자'",
+          "SELECT * FROM cypher('sample_graph', $$\n  MATCH (e:ETF)-[h:HOLDS]->(c:Company {name: $name})\n  RETURN e.code, h.weight ORDER BY h.weight DESC LIMIT 10\n$$) AS (code agtype, weight agtype);",
       },
       {
         stage: "gate",
@@ -899,7 +899,7 @@ export const bond: SearchResponse = {
         ms: 44,
         detail: "4행",
         query:
-          "SELECT code, name, credit_grade, coupon_rate, maturity_date, subordinated\n  FROM sample_bond\n WHERE grade_rank(credit_grade) <= grade_rank($1) AND subordinated = $2\n ORDER BY coupon_rate DESC\n LIMIT $3;  -- $1 = 'AA0', $2 = false, $3 = 10",
+          "SELECT code, name, credit_grade, coupon_rate, maturity_date, subordinated\n  FROM sample_bond\n WHERE grade_rank(credit_grade) <= grade_rank($1) AND subordinated = $2\n ORDER BY coupon_rate DESC\n LIMIT $3;",
       },
       { stage: "gate", label: "게이트", ms: 2, detail: "통과", query: null },
       {
@@ -923,6 +923,87 @@ export const bond: SearchResponse = {
   ),
 };
 
+/**
+ * 다중 도메인 부분 장애(39 §2-4): 국내 ETF는 FOUND, 국내 ETN은 DB 연결 오류로 장애 도메인.
+ * 정상 결과를 버리지 않고 caveat로 싣고, 장애 도메인은 STORE_BLOCKED notice로 남긴다.
+ */
+export const caveatOutage: SearchResponse = {
+  request_id: "mock-caveat-outage-0012",
+  question: "총보수 0.2% 미만 ETF·ETN 순자산 큰 순",
+  outcome: "caveat",
+  answer: {
+    text: "조건에 맞는 국내 ETF 중 순자산이 가장 큰 상품은 SAMPLE 코스피200(9.1조 원)입니다. 국내 ETN은 지금 불러올 수 없어 결과에 넣지 못했습니다.",
+    generated_by: "llm",
+    notices: [
+      {
+        code: "STORE_BLOCKED",
+        text: "국내 ETN 데이터를 지금 불러올 수 없습니다.",
+      },
+    ],
+  },
+  interpretation: {
+    domains: [
+      domain("kr_etf", "FOUND", ETF_DATE),
+      domain("kr_etn", "AXIS_ABSENT", BOND_DATE),
+    ],
+    conditions: [
+      {
+        axis: "expense_ratio",
+        label: "총보수",
+        op: "<",
+        value: 0.2,
+        display: "총보수 < 0.2%",
+      },
+    ],
+    sort: { axis: "aum", label: "순자산", dir: "desc" },
+    limit: 10,
+  },
+  results: [
+    etfGroup(
+      ETF_SEEDS.filter((s) => s.fee < 0.2),
+      7,
+      1,
+    ),
+  ],
+  clarify: null,
+  suggestions: [],
+  trace: trace(
+    [
+      {
+        stage: "route",
+        label: "라우팅",
+        ms: 5,
+        detail: "국내 ETF·국내 ETN · 조건 검색",
+        query: null,
+      },
+      {
+        stage: "query",
+        label: "조회",
+        ms: 5004,
+        detail: "국내 ETF 7행 · 국내 ETN 연결 실패",
+        query: null,
+      },
+      {
+        stage: "gate",
+        label: "게이트",
+        ms: 2,
+        detail: "부분 통과 · 국내 ETN 장애",
+        query: null,
+      },
+      {
+        stage: "generate",
+        label: "생성",
+        ms: 2950,
+        detail: "문장 2개",
+        query: null,
+      },
+      RENDER,
+    ],
+    true,
+    { prompt: 1320, completion: 88 },
+  ),
+};
+
 /** outcome 8종 대표 픽스처. 계약·화면 테스트가 이 목록을 돈다. */
 export const OUTCOME_FIXTURES = {
   answered,
@@ -940,6 +1021,7 @@ export const ALL_SEARCH_FIXTURES: SearchResponse[] = [
   fallback,
   count,
   bond,
+  caveatOutage,
 ];
 
 // ---------------------------------------------------------------------------

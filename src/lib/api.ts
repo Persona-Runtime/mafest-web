@@ -1,6 +1,7 @@
-import { ApiError, type SearchApi } from "./types";
+import { ApiError, type ErrorBody, type SearchApi } from "./types";
 import {
   ContractError,
+  validateErrorBody,
   validateMeta,
   validateProductDetail,
   validateSearchResponse,
@@ -11,7 +12,10 @@ import {
  * 로그인이 없으므로 인증 헤더를 보내지 않는다.
  *
  * 실패 처리 원칙:
- * - 429는 Retry-After(초)를 읽어 ApiError에 담는다. 화면이 카운트다운한다.
+ * - 429는 Traefik IP 요청 제한이다. Retry-After(초)를 읽어 ApiError에 담고
+ *   화면이 카운트다운한다. 본문 형식이나 request_id는 기대하지 않는다.
+ * - 그 밖 4xx·5xx는 본문이 ErrorBody면 그 code와 request_id를 쓴다. ErrorBody가 아니면
+ *   본문의 다른 키(FastAPI `detail` 등)를 code로 믿지 않고 `http_<status>`로 둔다.
  * - 5xx라도 본문이 계약을 지키는 `outcome: "error"` 응답이면 그대로 돌려준다.
  *   서버가 error를 200으로 줄지 500으로 줄지(37 두 문서의 차이) 웹은 상관하지 않는다.
  * - 본문이 계약과 다르면 성공처럼 그리지 않고 invalid_response로 실패시킨다.
@@ -34,13 +38,14 @@ async function readJson(response: Response): Promise<unknown> {
   }
 }
 
-function errorCode(body: unknown, fallback: string): string {
-  if (typeof body === "object" && body !== null) {
-    const record = body as Record<string, unknown>;
-    if (typeof record.code === "string") return record.code;
-    if (typeof record.detail === "string") return record.detail;
+/** 본문이 계약을 지킨 앱 오류 본문이면 돌려주고, 아니면(Traefik 본문 등) null. */
+function appErrorBody(body: unknown): ErrorBody | null {
+  try {
+    return validateErrorBody(body);
+  } catch (error) {
+    if (error instanceof ContractError) return null;
+    throw error;
   }
-  return fallback;
 }
 
 async function request(
@@ -63,7 +68,10 @@ async function request(
 }
 
 function fail(response: Response, body: unknown): never {
-  const requestId = response.headers.get("X-Request-Id");
+  const appError = appErrorBody(body);
+  // Traefik 응답에는 X-Request-Id가 없을 수 있다. 본문 request_id를 먼저 쓴다.
+  const requestId =
+    appError?.request_id ?? response.headers.get("X-Request-Id");
   if (response.status === 429) {
     throw new ApiError(
       429,
@@ -72,11 +80,12 @@ function fail(response: Response, body: unknown): never {
       requestId,
     );
   }
+  // Traefik이 직접 낸 504는 ErrorBody가 아닐 수 있지만 화면 의미는 같다.
   if (response.status === 504)
     throw new ApiError(504, "timeout", null, requestId);
   throw new ApiError(
     response.status,
-    errorCode(body, `http_${response.status}`),
+    appError?.code ?? `http_${response.status}`,
     null,
     requestId,
   );
