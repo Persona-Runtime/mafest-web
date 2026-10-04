@@ -79,6 +79,11 @@ function describe(error: ApiError): { title: string; body: string } {
       title: "찾을 수 없습니다",
       body: "요청한 상품이 없거나 공개 범위 밖입니다.",
     };
+  if (error.status === 503)
+    return {
+      title: "지금 이 데이터를 불러올 수 없습니다",
+      body: "잠시 뒤 다시 시도해 주세요.",
+    };
   if (error.status === 0)
     return {
       title: "서버에 연결할 수 없습니다",

@@ -106,19 +106,36 @@ describe("계약 위반을 잡는다", () => {
     ).toBe("results[0].rows[0].values.ghost");
   });
 
+  test("행에 열 값이 빠짐", () => {
+    expect(
+      pathOf((r) => {
+        const rows = (
+          r.results as { rows: { values: Record<string, unknown> }[] }[]
+        )[0].rows;
+        delete rows[0].values.aum;
+      }),
+    ).toBe("results[0].rows[0].values.aum");
+  });
+
   test("ambiguous인데 선택지가 없음", () => {
     expect(
       pathOf((r) => {
         r.outcome = "ambiguous";
+        r.results = [];
         r.clarify = null;
       }),
     ).toBe("clarify");
   });
 
-  test("suggestions가 없으면 빈 배열로 채운다(계약 추가 제안 필드)", () => {
-    const input = clone(answered) as unknown as Record<string, unknown>;
-    delete input.suggestions;
-    expect(validateSearchResponse(input).suggestions).toEqual([]);
+  test.each(["suggestions", "clarify", "trace", "results"])(
+    "필드 %s가 빠지면 기본값으로 메우지 않고 거절한다",
+    (key) => {
+      expect(pathOf((r) => delete r[key])).toBe(key);
+    },
+  );
+
+  test("표를 내지 않는 outcome에 results가 있으면 거절한다", () => {
+    expect(pathOf((r) => (r.outcome = "refused"))).toBe("results");
   });
 
   test("상세의 출처 값은 정해진 네 가지뿐", () => {

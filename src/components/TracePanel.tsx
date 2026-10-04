@@ -73,8 +73,8 @@ export function TracePanel({
         </div>
       </dl>
       <p className="trace__note">
-        조회는 읽기 전용 계정으로 실행됩니다. 쿼리의 매개변수 값은 질문에서 온
-        값입니다.
+        조회는 읽기 전용 계정으로 실행됩니다. 쿼리의 매개변수는 질문을 해석해
+        확정한 값입니다.
       </p>
     </details>
   );

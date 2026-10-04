@@ -42,13 +42,16 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorBody" }
         "429":
-          description: 동시 생성 상한 초과(앱) 또는 IP 요청 제한(Traefik)
+          description: |
+            동시 생성 상한 초과(앱, code=busy, JSON) 또는 IP 요청 제한(Traefik, text/plain).
           headers:
             Retry-After: { $ref: "#/components/headers/Retry-After" }
             X-Request-Id: { $ref: "#/components/headers/X-Request-Id" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorBody" }
+            text/plain:
+              schema: { type: string }
         "500":
           description: |
             처리 중 예외. 본문은 반드시 outcome=error인 SearchResponse다
@@ -98,14 +101,32 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorBody" }
         "429":
-          description: IP 요청 제한(Traefik, 분당 30)
+          description: IP 요청 제한(Traefik, 분당 30). 본문은 text/plain일 수 있다.
           headers:
             Retry-After: { $ref: "#/components/headers/Retry-After" }
+        "500":
+          description: "처리 중 예외(code: internal)"
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/X-Request-Id" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorBody" }
+        "503":
+          description: "DB 연결 오류·statement timeout(code: unavailable). 일시 장애"
+          headers:
+            Retry-After: { $ref: "#/components/headers/Retry-After" }
+            X-Request-Id: { $ref: "#/components/headers/X-Request-Id" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorBody" }
 
   /v1/meta:
     get:
       operationId: getMeta
       summary: 상품군별 건수·기준일, 예시 질문, 생성 모델 가용 여부
+      description: |
+        건수·기준일·예시는 기동 시 릴리스 manifest에서 읽어 둔다(요청마다 DB를 읽지 않는다).
+        그래서 DB 장애와 무관하게 항상 200이다.
       responses:
         "200":
           description: 메타
@@ -184,14 +205,27 @@ components:
           maxLength: 200
 
     ErrorBody:
+      description: |
+        앱이 내는 4xx·5xx 본문(검색 500은 제외 — SearchResponse). Traefik이 직접 내는
+        429(요청 제한)는 이 형식이 아니라 text/plain일 수 있다. 웹은 상태 코드만 본다.
       type: object
-      required: [code]
+      required: [code, message, request_id]
+      additionalProperties: false
       properties:
         code:
           type: string
-          description: invalid_question · busy · rate_limited · timeout · unknown_domain · product_not_found · internal
-        message: { type: string }
-        request_id: { type: string }
+          enum:
+            [
+              invalid_question,
+              busy,
+              timeout,
+              unknown_domain,
+              product_not_found,
+              unavailable,
+              internal,
+            ]
+        message: { type: string, minLength: 1 }
+        request_id: { type: string, minLength: 1 }
 
     Notice:
       type: object

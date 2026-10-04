@@ -58,17 +58,20 @@ describe.skipIf(!live)("실제 mafest-api 계약", () => {
   }, 120_000);
 
   test("검색 결과의 첫 상품 상세를 열 수 있다", async () => {
+    // 조건이 안 맞는다고 return으로 빠지면 상세 API를 한 번도 안 불러도 통과한다.
+    // 전제가 깨지면 그 자체를 실패로 본다.
     const meta = await httpApi.getMeta();
     const first = meta.examples.find((e) => e.expected_outcome === "answered");
-    if (!first) return;
-    const result = await httpApi.search(first.question);
+    expect(first, "meta.examples에 answered 예시가 없다").toBeDefined();
+    const result = await httpApi.search(first!.question);
+    expect(result.outcome).toBe("answered");
     const group = result.results.find((g) => g.rows.length > 0);
-    if (!group) return;
-    const detail = await httpApi.getProduct(
-      group.domain,
-      group.rows[0].product_id,
-    );
-    expect(detail.product_id).toBe(group.rows[0].product_id);
+    expect(group, `${first!.id} 결과에 행이 없다`).toBeDefined();
+    const row = group!.rows[0];
+    const detail = await httpApi.getProduct(group!.domain, row.product_id);
+    expect(detail.product_id).toBe(row.product_id);
+    expect(detail.domain).toBe(group!.domain);
+    expect(detail.groups.length).toBeGreaterThan(0);
   }, 60_000);
 
   test("없는 상품은 404", async () => {

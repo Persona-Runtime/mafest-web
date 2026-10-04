@@ -87,15 +87,35 @@ function dateOrNull(v: unknown, path: string): void {
     throw new ContractError(path);
 }
 
-function options(v: unknown, path: string): void {
-  arr(v, path).forEach((o, i) => {
+function int(v: unknown, path: string, min: number, max: number): number {
+  const n = num(v, path);
+  if (!Number.isInteger(n) || n < min || n > max) throw new ContractError(path);
+  return n;
+}
+
+function options(
+  v: unknown,
+  path: string,
+  minItems: number,
+  maxItems: number,
+): void {
+  const list = arr(v, path);
+  if (list.length < minItems || list.length > maxItems)
+    throw new ContractError(path);
+  list.forEach((o, i) => {
     const p = `${path}[${i}]`;
     const option = obj(o, p);
-    str(option.label, `${p}.label`);
-    if (str(option.question, `${p}.question`).trim() === "")
+    const label = str(option.label, `${p}.label`);
+    if (label.length < 1 || label.length > 20)
+      throw new ContractError(`${p}.label`);
+    const question = str(option.question, `${p}.question`);
+    if (question.trim() === "" || question.length > 200)
       throw new ContractError(`${p}.question`);
   });
 }
+
+/** 표를 내는 outcome. 나머지는 results가 반드시 비어 있다(명세 §2-3). */
+const TABLE_OUTCOMES: ReadonlySet<string> = new Set(["answered", "caveat"]);
 
 export function validateSearchResponse(input: unknown): SearchResponse {
   const r = obj(input, "$");
@@ -136,13 +156,16 @@ export function validateSearchResponse(input: unknown): SearchResponse {
     str(sort.label, "interpretation.sort.label");
     oneOf(sort.dir, ["asc", "desc"] as const, "interpretation.sort.dir");
   }
-  if (it.limit !== null) num(it.limit, "interpretation.limit");
+  if (it.limit !== null) int(it.limit, "interpretation.limit", 1, 20);
 
-  arr(r.results, "results").forEach((g, gi) => {
+  const results = arr(r.results, "results");
+  if (results.length > 0 && !TABLE_OUTCOMES.has(outcome))
+    throw new ContractError("results");
+  results.forEach((g, gi) => {
     const p = `results[${gi}]`;
     const group = obj(g, p);
     oneOf(group.domain, DOMAIN_KEYS, `${p}.domain`);
-    num(group.total_count, `${p}.total_count`);
+    int(group.total_count, `${p}.total_count`, 0, Number.MAX_SAFE_INTEGER);
     bool(group.truncated, `${p}.truncated`);
     const keys = new Set<string>();
     arr(group.columns, `${p}.columns`).forEach((c, ci) => {
@@ -153,13 +176,18 @@ export function validateSearchResponse(input: unknown): SearchResponse {
       oneOf(column.kind, COLUMN_KINDS, `${cp}.kind`);
       bool(column.emphasis, `${cp}.emphasis`);
     });
-    arr(group.rows, `${p}.rows`).forEach((row, ri) => {
+    const rows = arr(group.rows, `${p}.rows`);
+    if (rows.length > 20) throw new ContractError(`${p}.rows`);
+    rows.forEach((row, ri) => {
       const rp = `${p}.rows[${ri}]`;
       const rowObj = obj(row, rp);
       str(rowObj.product_id, `${rp}.product_id`);
       str(rowObj.name, `${rp}.name`);
       bool(rowObj.cited, `${rp}.cited`);
       const values = obj(rowObj.values, `${rp}.values`);
+      // 행마다 모든 열의 값이 있어야 한다. 값이 없으면 src=unavailable 셀로 온다(명세 §2-7).
+      for (const key of keys)
+        if (!(key in values)) throw new ContractError(`${rp}.values.${key}`);
       for (const [key, value] of Object.entries(values)) {
         const vp = `${rp}.values.${key}`;
         // 열 정의에 없는 값은 그릴 자리가 없다. 서버·웹 열 사전이 어긋났다는 신호다.
@@ -173,19 +201,18 @@ export function validateSearchResponse(input: unknown): SearchResponse {
     });
   });
 
-  if (r.clarify !== null) {
+  // clarify는 ambiguous일 때만 있고, 그때는 반드시 있다(없으면 화면이 막다른 길이 된다).
+  if (outcome === "ambiguous") {
     const clarify = obj(r.clarify, "clarify");
     oneOf(clarify.kind, CLARIFY_KINDS, "clarify.kind");
     str(clarify.reason, "clarify.reason");
-    options(clarify.options, "clarify.options");
-  }
-  // ambiguous인데 선택지가 없으면 화면이 막다른 길이 된다.
-  if (outcome === "ambiguous" && r.clarify === null)
+    options(clarify.options, "clarify.options", 2, 4);
+  } else if (r.clarify !== null) {
     throw new ContractError("clarify");
+  }
 
-  // suggestions는 계약 추가 제안이라 없을 수 있다. 있으면 형식을 지켜야 한다.
-  if (r.suggestions === undefined) r.suggestions = [];
-  options(r.suggestions, "suggestions");
+  // 모든 필드는 항상 온다(명세 §1). 빠진 키를 기본값으로 메우지 않는다.
+  options(r.suggestions, "suggestions", 0, 3);
 
   if (r.trace !== null) {
     const trace = obj(r.trace, "trace");
