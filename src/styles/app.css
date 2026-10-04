@@ -451,7 +451,8 @@ button:disabled:hover {
   flex-direction: column;
   gap: var(--space-4);
   max-width: 760px;
-  margin: var(--space-8) auto 0;
+  /* 검색만 있는 화면이라 위쪽 여백을 넉넉히 둬 화면 가운데쯤에 놓는다. */
+  margin: clamp(var(--space-8), 14vh, 160px) auto 0;
   width: 100%;
   text-align: center;
 }
@@ -512,12 +513,6 @@ button:disabled:hover {
   font-weight: 600;
 }
 
-.home__grid {
-  display: grid;
-  grid-template-columns: 3fr 2fr;
-  gap: var(--space-4);
-}
-
 @media (max-width: 719px) {
   .home {
     gap: var(--space-6);
@@ -532,8 +527,7 @@ button:disabled:hover {
     font-size: var(--text-2xl);
   }
 
-  .example-chips,
-  .home__grid {
+  .example-chips {
     grid-template-columns: 1fr;
   }
 }

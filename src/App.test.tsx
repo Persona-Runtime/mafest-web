@@ -48,8 +48,17 @@ describe("홈", () => {
     expect(currentLocation()).toBe(`/search?q=${meta.examples[0].question}`);
   });
 
-  test("상품군별 건수와 기준일을 보여준다", async () => {
+  test("홈은 검색만: 상품군 표·하지 않는 것은 없다", async () => {
     renderApp();
+    await screen.findByRole("link", {
+      name: new RegExp(meta.examples[0].question),
+    });
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "하지 않는 것" })).toBeNull();
+  });
+
+  test("/about에 상품군별 건수와 기준일", async () => {
+    renderApp({ path: "/about" });
     const table = await screen.findByRole("table", {
       name: /상품군별 상품 수/,
     });
@@ -82,10 +91,14 @@ describe("홈", () => {
     expect(screen.getByLabelText("질문")).toBeEnabled();
   });
 
-  test("비공식 고지와 투자 고지가 있다", () => {
+  test("홈에도 비공식 고지(푸터)는 있다", () => {
     renderApp();
     expect(screen.getByText(/미래에셋증권과 무관/)).toBeInTheDocument();
-    expect(screen.getByText(/투자권유가 아닙니다/)).toBeInTheDocument();
+  });
+
+  test("결과 화면에는 투자 고지가 붙는다", async () => {
+    renderApp({ path: searchPath(answered.question) });
+    expect(await screen.findByText(/투자권유가 아닙니다/)).toBeInTheDocument();
   });
 });
 
