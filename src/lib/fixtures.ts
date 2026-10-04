@@ -395,7 +395,7 @@ const EMPTY_GRAPH: SearchGraph = { nodes: [], edges: [] };
 
 /** 국내 상장 좁히기: 클래스 —listedOn→ 국내시장. */
 function listedDomestic(g: GraphBuilder, concept: string, mapping: number) {
-  g.node("v1", "individual", "국내시장", { iri: "etf:Market_KRX", mapping });
+  g.node("v1", "individual", "국내시장", { iri: "etf:KRX", mapping });
   g.edge(concept, "v1", "property", { label: "listedOn", mapping });
 }
 

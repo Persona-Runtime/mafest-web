@@ -221,12 +221,14 @@ export const GRAPH_STATES = [
 ] as const;
 export type GraphState = (typeof GRAPH_STATES)[number];
 
+/** 관계 개체 종류. mafest 그래프 노드 label과 같은 이름(graph_runner.py 스키마). */
 export const ENTITY_TYPES = [
   "Constituent",
-  "Ksic",
-  "Industry",
-  "AssetManagementCompany",
   "BusinessGroup",
+  "Issuer",
+  "Manager",
+  "Industry",
+  "Ksic",
   "Index",
 ] as const;
 export type EntityType = (typeof ENTITY_TYPES)[number];

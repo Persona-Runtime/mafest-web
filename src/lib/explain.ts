@@ -412,10 +412,11 @@ export function questionSegments(
 
 export const ENTITY_LABEL: Record<EntityType, string> = {
   Constituent: "구성종목",
-  Ksic: "산업분류",
-  Industry: "산업",
-  AssetManagementCompany: "운용사",
   BusinessGroup: "기업집단",
+  Issuer: "발행사",
+  Manager: "운용사",
+  Industry: "산업",
+  Ksic: "산업분류",
   Index: "지수",
 };
 
