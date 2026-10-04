@@ -148,6 +148,38 @@ const MUTATIONS: Mutation[] = [
         "guess";
     },
   ],
+  [
+    "탐색 그래프(graph) 누락",
+    answered,
+    (r) => delete (r.interpretation as Record<string, unknown>).graph,
+  ],
+  [
+    "그래프 노드 kind가 목록 밖",
+    answered,
+    (r) => {
+      (
+        r.interpretation as { graph: { nodes: { kind: string }[] } }
+      ).graph.nodes[0].kind = "guess";
+    },
+  ],
+  [
+    "그래프 노드에 모르는 키",
+    answered,
+    (r) => {
+      (
+        r.interpretation as { graph: { nodes: Record<string, unknown>[] } }
+      ).graph.nodes[0].sql = "SELECT 1";
+    },
+  ],
+  [
+    "그래프 간선 state가 목록 밖",
+    answered,
+    (r) => {
+      (
+        r.interpretation as { graph: { edges: { state: string }[] } }
+      ).graph.edges[0].state = "maybe";
+    },
+  ],
   ["request_id 누락", answered, (r) => delete r.request_id],
   [
     "answer.generated_by 누락",

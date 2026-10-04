@@ -196,6 +196,90 @@ describe("결과 — outcome 8종", () => {
     expect(screen.queryByRole("region", { name: "답변" })).toBeNull();
   });
 
+  test("탐색 그래프: 클래스 → 집합 → 상품 경로와 좁혀진 건수 (넓은 화면)", async () => {
+    setViewport(1280);
+    renderApp({ api: respondWith(caveat), path: searchPath(caveat.question) });
+    const graph = await screen.findByRole("region", { name: "탐색 그래프" });
+    const narrow = within(graph).getByRole("list", { name: "좁혀진 건수" });
+    expect(narrow).toHaveTextContent("국내 ETF1,180→에서7건");
+    expect(narrow).toHaveTextContent("국내 ETN312→에서2건");
+    const figure = within(graph).getByRole("group", {
+      name: "탐색 그래프 그림",
+    });
+    expect(figure).toHaveTextContent("금융상품");
+    expect(figure).toHaveTextContent("412건");
+    // 그림을 못 보는 경우의 대체 설명
+    const desc = within(graph).getByRole("list", { name: "그래프 설명" });
+    expect(desc).toHaveTextContent("ETF·ETN: 금융상품의 하위 클래스");
+    // 인용 상품은 표시가 붙은 링크
+    expect(
+      within(figure).getByRole("link", {
+        name: "SAMPLE 코스피200 (답변 인용) 상세",
+      }),
+    ).toHaveAttribute("href", "/products/kr_etf/SMP001");
+  });
+
+  test("탐색 그래프: 상품을 누르면 오른쪽 패널, 해석 번호는 질문·목록·그래프가 함께 강조", async () => {
+    setViewport(1280);
+    const { user } = renderApp({ path: searchPath(answered.question) });
+    const graph = await screen.findByRole("region", { name: "탐색 그래프" });
+    const canvas = graph.querySelector(".graph__canvas")!;
+
+    // 해석 목록 1번(순자산 큰 → 정렬)에 올리면 그래프의 같은 번호 요소가 켜진다
+    const how = screen.getByRole("list", { name: "해석 과정" });
+    await user.hover(within(how).getAllByRole("listitem")[0]);
+    expect(canvas).toHaveAttribute("data-focusing");
+    expect(
+      [...canvas.querySelectorAll("[data-active]")].map((e) =>
+        e.getAttribute("class"),
+      ),
+    ).toContain("gedge gedge--constraint gstate--ok");
+    await user.unhover(within(how).getAllByRole("listitem")[0]);
+    expect(canvas).not.toHaveAttribute("data-focusing");
+
+    // 그래프 쪽에서 올리면 질문 밑줄이 켜진다
+    const s1 = [...canvas.querySelectorAll(".gnode--set")].find((n) =>
+      n.textContent?.includes("상위 5"),
+    )!;
+    await user.hover(s1);
+    expect(
+      document.querySelector(".qmark[data-active]")?.textContent,
+    ).toContain("5개");
+
+    await user.click(
+      within(graph).getByRole("link", { name: /DEMO 미국S&P500/ }),
+    );
+    expect(currentLocation()).toContain("p=kr_etf/DMO014");
+    expect(
+      screen.getByRole("complementary", { name: "상품 상세" }),
+    ).toBeVisible();
+  });
+
+  test("탐색 그래프: 좁은 화면은 [결과 | 그래프 | 처리 과정] 탭, 장애는 표시로", async () => {
+    const { user } = renderApp({
+      api: respondWith(unavailable),
+      path: searchPath(unavailable.question),
+    });
+    await user.click(await screen.findByRole("tab", { name: "그래프" }));
+    const graph = screen.getByRole("region", { name: "탐색 그래프" });
+    expect(
+      within(graph).getByRole("list", { name: "좁혀진 건수" }),
+    ).toHaveTextContent("장애");
+    expect(graph).toHaveTextContent("구성종목");
+    expect(graph).toHaveTextContent("HOLDS");
+    expect(screen.queryByRole("region", { name: "답변" })).toBeNull();
+  });
+
+  test("거절·오류는 그래프를 그리지 않는다", async () => {
+    renderApp({
+      api: respondWith(refused),
+      path: searchPath(refused.question),
+    });
+    await screen.findByRole("region", { name: "질문 해석" });
+    expect(screen.queryByRole("tab", { name: "그래프" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "탐색 그래프" })).toBeNull();
+  });
+
   test("게이트에서 멈춘 경우: 생성 단계는 '모델 호출 안 함'", async () => {
     setViewport(1280);
     renderApp({

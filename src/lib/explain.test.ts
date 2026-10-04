@@ -1,7 +1,9 @@
 import { describe, expect, test } from "vitest";
 import {
   buildPipeline,
+  describeGraph,
   domainViews,
+  graphNarrowing,
   interpretationSentence,
   linkAnswer,
   questionSegments,
@@ -200,5 +202,48 @@ describe("questionSegments — 해석 과정 밑줄", () => {
       caveat.interpretation.mappings,
     );
     expect(segments).toEqual([{ text: "채권 보여줘" }]);
+  });
+});
+
+describe("탐색 그래프 설명", () => {
+  test("좁혀진 건수: 상품군별 전체 → 최종", () => {
+    const n = graphNarrowing(
+      caveat.interpretation.graph,
+      caveat.interpretation.domains,
+    );
+    expect(n.map((x) => [x.label, x.from, x.to])).toEqual([
+      ["국내 ETF", 1180, "7건"],
+      ["국내 ETN", 312, "2건"],
+    ]);
+  });
+
+  test("0건·장애·수집 안 함·선택 필요가 숫자 대신 보인다", () => {
+    const last = (r: SearchResponse) =>
+      graphNarrowing(r.interpretation.graph, r.interpretation.domains).map(
+        (x) => [x.to, x.tone],
+      );
+    expect(last(noResult)).toEqual([["0건", "empty"]]);
+    expect(last(unavailable)).toEqual([["장애", "danger"]]);
+    expect(last(notCollected)).toEqual([["수집 안 함", "warn"]]);
+    expect(last(ambiguous)).toEqual([["선택 필요", "warn"]]);
+    expect(last(caveatOutage)[1]).toEqual(["장애", "danger"]);
+  });
+
+  test("대체 설명: 간선 하나가 한 줄, 하위 클래스·관계 이름·상태를 문장으로", () => {
+    const lines = describeGraph(unavailable.interpretation.graph);
+    expect(lines).toHaveLength(unavailable.interpretation.graph.edges.length);
+    expect(lines).toContain("ETF: 금융상품의 하위 클래스");
+    expect(lines).toContain("ETF —listedOn→ 국내시장");
+    expect(lines.at(-1)).toBe(
+      "SAMPLE전자 편입(장애) —HOLDS→ 구성종목 SAMPLE전자 · 장애",
+    );
+    expect(describeGraph(answered.interpretation.graph)).toContain(
+      "순자산 ↓ 상위 5(5건) → SAMPLE 코스피200(답변 인용)",
+    );
+  });
+
+  test("거절·오류는 그래프가 비어 설명도 없다", () => {
+    expect(describeGraph(refused.interpretation.graph)).toEqual([]);
+    expect(describeGraph(errorOutcome.interpretation.graph)).toEqual([]);
   });
 });

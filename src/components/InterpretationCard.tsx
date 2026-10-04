@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMappingFocus } from "../lib/citeFocus";
 import {
   domainViews,
   interpretationSentence,
@@ -20,7 +20,7 @@ import type { SearchResponse } from "../lib/types";
  */
 export function InterpretationCard({ response }: { response: SearchResponse }) {
   const it = response.interpretation;
-  const [active, setActive] = useState<number | null>(null);
+  const { active, setActive } = useMappingFocus();
   const hasMappings = it.mappings.length > 0;
   if (
     !hasMappings &&

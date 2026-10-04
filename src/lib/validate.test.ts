@@ -171,6 +171,56 @@ describe("계약 위반을 잡는다", () => {
     ).toBe("results[0].rows[0].values.code.note");
   });
 
+  describe("[r8] 탐색 그래프: 명세(yaml)로 못 거는 규칙", () => {
+    type G = {
+      interpretation: {
+        graph: {
+          nodes: Array<Record<string, unknown>>;
+          edges: Array<Record<string, unknown>>;
+        };
+      };
+    };
+    const graphOf = (r: Record<string, unknown>) =>
+      (r as unknown as G).interpretation.graph;
+
+    test("간선 끝이 없는 노드를 가리키면 거절", () => {
+      expect(pathOf((r) => (graphOf(r).edges[0].to = "nope"))).toBe(
+        "interpretation.graph.edges[0].to",
+      );
+    });
+
+    test("노드 id 중복은 거절", () => {
+      expect(
+        pathOf((r) => (graphOf(r).nodes[1].id = graphOf(r).nodes[0].id)),
+      ).toBe("interpretation.graph.nodes[1].id");
+    });
+
+    test("mapping 번호가 해석 과정 범위 밖이면 거절", () => {
+      expect(pathOf((r) => (graphOf(r).nodes[0].mapping = 99))).toBe(
+        "interpretation.graph.nodes[0].mapping",
+      );
+    });
+
+    test("노드 40개를 넘으면 거절", () => {
+      expect(
+        pathOf((r) => {
+          const g = graphOf(r);
+          for (let i = 0; i < 41; i++)
+            g.nodes.push({ ...g.nodes[0], id: `x${i}` });
+        }),
+      ).toBe("interpretation.graph.nodes");
+    });
+
+    test("빈 그래프는 받는다(거절·오류·서버 미구현)", () => {
+      expect(
+        pathOf((r) => {
+          graphOf(r).nodes = [];
+          graphOf(r).edges = [];
+        }),
+      ).toBe("통과함");
+    });
+  });
+
   test("상세의 출처 값은 정해진 네 가지뿐", () => {
     const detail = clone(PRODUCT_FIXTURES[0]);
     (detail.groups[0].fields[0] as { src: string }).src = "guess";

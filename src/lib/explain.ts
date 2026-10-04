@@ -1,6 +1,10 @@
-import { isNumeric } from "./format";
+import { formatCount, isNumeric } from "./format";
+import { graphLayers } from "./graphLayout";
 import type {
+  EntityType,
   EvidenceStatus,
+  GraphNode,
+  GraphState,
   Interpretation,
   InterpretationMapping,
   InterpretedDomain,
@@ -8,6 +12,7 @@ import type {
   MappingSlot,
   Outcome,
   ResultGroup,
+  SearchGraph,
   SearchResponse,
   TraceStage,
 } from "./types";
@@ -399,5 +404,116 @@ export function questionSegments(
     cursor = span.end;
   }
   if (cursor < question.length) out.push({ text: question.slice(cursor) });
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// 탐색 그래프(r8 interpretation.graph)
+
+export const ENTITY_LABEL: Record<EntityType, string> = {
+  Constituent: "구성종목",
+  Ksic: "산업분류",
+  Industry: "산업",
+  AssetManagementCompany: "운용사",
+  BusinessGroup: "기업집단",
+  Index: "지수",
+};
+
+/** 집합 노드의 숫자 자리 문구. 상태가 숫자보다 앞선다(장애면 건수를 믿을 수 없다). */
+export const GRAPH_STATE_LABEL: Record<GraphState, string> = {
+  ok: "",
+  empty: "0건",
+  absent: "수집 안 함",
+  blocked: "장애",
+  ambiguous: "선택 필요",
+};
+
+export function setCountText(node: GraphNode): string {
+  if (node.state === "blocked" || node.state === "ambiguous")
+    return GRAPH_STATE_LABEL[node.state];
+  if (node.count !== null) return `${formatCount(node.count)}건`;
+  return node.state ? GRAPH_STATE_LABEL[node.state] : "";
+}
+
+function nodeText(node: GraphNode): string {
+  switch (node.kind) {
+    case "set": {
+      const count = setCountText(node);
+      return count ? `${node.label}(${count})` : node.label;
+    }
+    case "product":
+      return node.cited ? `${node.label}(답변 인용)` : node.label;
+    case "entity":
+      return node.entity_type
+        ? `${ENTITY_LABEL[node.entity_type]} ${node.label}`
+        : node.label;
+    default:
+      return node.label;
+  }
+}
+
+/**
+ * 그래프를 문장 목록으로. 화면 읽기 프로그램과 그림을 못 보는 사람을 위한 대체 설명이며,
+ * 간선 하나가 한 줄이다.
+ */
+export function describeGraph(graph: SearchGraph): string[] {
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  return graph.edges.flatMap((e) => {
+    const from = byId.get(e.from);
+    const to = byId.get(e.to);
+    if (!from || !to) return [];
+    const state =
+      e.state && e.state !== "ok" ? ` · ${GRAPH_STATE_LABEL[e.state]}` : "";
+    if (e.kind === "subclass")
+      return [`${nodeText(from)}: ${nodeText(to)}의 하위 클래스${state}`];
+    const via = e.label ? ` —${e.label}→ ` : " → ";
+    const weight = e.weight ? ` (비중 ${e.weight})` : "";
+    return [`${nodeText(from)}${via}${nodeText(to)}${weight}${state}`];
+  });
+}
+
+export interface Narrowing {
+  domain: string;
+  label: string;
+  from: number | null;
+  /** 가장 깊은 집합의 건수 문구(예: "7건", "장애", "수집 안 함"). */
+  to: string;
+  tone: "ok" | "empty" | "warn" | "danger";
+}
+
+/**
+ * 상품군별로 "전체 몇 건 → 최종 몇 건". 시작은 상품군의 첫 집합, 끝은 가장 깊은 층의
+ * 집합이다(같은 층이면 뒤에 온 것). 그래프 머리에 한 줄로 보인다.
+ */
+export function graphNarrowing(
+  graph: SearchGraph,
+  domains: InterpretedDomain[],
+): Narrowing[] {
+  const layers = graphLayers(graph);
+  const out: Narrowing[] = [];
+  for (const d of domains) {
+    const sets = graph.nodes.filter(
+      (n) => n.kind === "set" && n.domain === d.domain,
+    );
+    if (sets.length === 0) continue;
+    let last = sets[0];
+    for (const n of sets)
+      if ((layers.get(n.id) ?? 0) >= (layers.get(last.id) ?? 0)) last = n;
+    const tone =
+      last.state === "blocked"
+        ? "danger"
+        : last.state === "empty" || last.count === 0
+          ? "empty"
+          : last.state === "absent" || last.state === "ambiguous"
+            ? "warn"
+            : "ok";
+    out.push({
+      domain: d.domain,
+      label: d.label,
+      from: sets[0] === last ? null : sets[0].count,
+      to: setCountText(last),
+      tone,
+    });
+  }
   return out;
 }

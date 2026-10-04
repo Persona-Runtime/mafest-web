@@ -5,7 +5,11 @@ import {
   DOMAIN_KEYS,
   ERROR_CODES,
   EVIDENCE_STATUSES,
+  ENTITY_TYPES,
   GENERATED_BY,
+  GRAPH_EDGE_KINDS,
+  GRAPH_NODE_KINDS,
+  GRAPH_STATES,
   MAPPING_METHODS,
   MAPPING_SLOTS,
   OUTCOMES,
@@ -167,6 +171,78 @@ function validateAnswer(v: unknown): void {
   });
 }
 
+const GRAPH_ID = /^[A-Za-z0-9_-]{1,32}$/;
+
+function stateOrNull(v: unknown, path: string): void {
+  if (v !== null) oneOf(v, GRAPH_STATES, path);
+}
+
+/**
+ * [r8] 탐색 그래프. yaml로 표현 못 하는 규칙도 여기서 본다: id 중복 금지, 간선 양 끝이
+ * 실제 노드일 것, mapping 번호가 mappings 범위 안일 것.
+ */
+function validateGraph(v: unknown, mappings: unknown): void {
+  const mappingCount = Array.isArray(mappings) ? mappings.length : 0;
+  const g = record(v, "interpretation.graph", ["nodes", "edges"]);
+  const ids = new Set<string>();
+  const mappingRef = (value: unknown, path: string) => {
+    if (value === null) return;
+    int(value, path, 0, Math.max(0, mappingCount - 1));
+    if (mappingCount === 0) throw new ContractError(path);
+  };
+  arr(g.nodes, "interpretation.graph.nodes", 40).forEach((n, i) => {
+    const p = `interpretation.graph.nodes[${i}]`;
+    const node = record(n, p, [
+      "id",
+      "kind",
+      "label",
+      "iri",
+      "count",
+      "domain",
+      "product_id",
+      "cited",
+      "entity_type",
+      "mapping",
+      "state",
+    ]);
+    const id = str(node.id, `${p}.id`);
+    if (!GRAPH_ID.test(id) || ids.has(id)) throw new ContractError(`${p}.id`);
+    ids.add(id);
+    oneOf(node.kind, GRAPH_NODE_KINDS, `${p}.kind`);
+    str(node.label, `${p}.label`, 1, 60);
+    strOrNull(node.iri, `${p}.iri`);
+    if (node.count !== null)
+      int(node.count, `${p}.count`, 0, Number.MAX_SAFE_INTEGER);
+    if (node.domain !== null) oneOf(node.domain, DOMAIN_KEYS, `${p}.domain`);
+    strOrNull(node.product_id, `${p}.product_id`);
+    bool(node.cited, `${p}.cited`);
+    if (node.entity_type !== null)
+      oneOf(node.entity_type, ENTITY_TYPES, `${p}.entity_type`);
+    mappingRef(node.mapping, `${p}.mapping`);
+    stateOrNull(node.state, `${p}.state`);
+  });
+  arr(g.edges, "interpretation.graph.edges", 60).forEach((e, i) => {
+    const p = `interpretation.graph.edges[${i}]`;
+    const edge = record(e, p, [
+      "from",
+      "to",
+      "kind",
+      "label",
+      "mapping",
+      "weight",
+      "state",
+    ]);
+    if (!ids.has(str(edge.from, `${p}.from`)))
+      throw new ContractError(`${p}.from`);
+    if (!ids.has(str(edge.to, `${p}.to`))) throw new ContractError(`${p}.to`);
+    oneOf(edge.kind, GRAPH_EDGE_KINDS, `${p}.kind`);
+    if (edge.label !== null) str(edge.label, `${p}.label`, 0, 40);
+    mappingRef(edge.mapping, `${p}.mapping`);
+    strOrNull(edge.weight, `${p}.weight`);
+    stateOrNull(edge.state, `${p}.state`);
+  });
+}
+
 function validateInterpretation(v: unknown): void {
   const it = record(v, "interpretation", [
     "domains",
@@ -174,7 +250,9 @@ function validateInterpretation(v: unknown): void {
     "sort",
     "limit",
     "mappings",
+    "graph",
   ]);
+  validateGraph(it.graph, it.mappings);
   // [r6] 해석 과정. 위치(start·end)는 둘 다 있거나 둘 다 null이고, 있으면 start ≤ end.
   // 글자가 question과 어긋나는지는 화면이 다시 찾아 맞춘다(틀린 위치로 응답 전체를 버리지 않는다).
   arr(it.mappings, "interpretation.mappings", 20).forEach((m, i) => {

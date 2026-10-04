@@ -2,12 +2,15 @@ import type {
   CellValue,
   Column,
   DomainKey,
+  GraphEdge,
+  GraphNode,
   InterpretationMapping,
   InterpretedDomain,
   Meta,
   ProductDetail,
   ResultGroup,
   ResultRow,
+  SearchGraph,
   SearchResponse,
   Trace,
   ValueSource,
@@ -307,6 +310,362 @@ const RENDER = {
 // ---------------------------------------------------------------------------
 // outcome 8종 (+ fallback, 개수, 채권)
 
+// ---------------------------------------------------------------------------
+// 탐색 그래프(r8). 온톨로지 IRI는 mafest Ontology의 접두 표기를 흉내 낸 합성 값이고,
+// 건수·상품은 위 합성 seed에서 만든다.
+
+class GraphBuilder {
+  nodes: GraphNode[] = [];
+  edges: GraphEdge[] = [];
+
+  node(
+    id: string,
+    kind: GraphNode["kind"],
+    label: string,
+    extra: Partial<GraphNode> = {},
+  ): string {
+    this.nodes.push({
+      id,
+      kind,
+      label,
+      iri: null,
+      count: null,
+      domain: null,
+      product_id: null,
+      cited: false,
+      entity_type: null,
+      mapping: null,
+      state: null,
+      ...extra,
+    });
+    return id;
+  }
+
+  edge(
+    from: string,
+    to: string,
+    kind: GraphEdge["kind"],
+    extra: Partial<GraphEdge> = {},
+  ): void {
+    this.edges.push({
+      from,
+      to,
+      kind,
+      label: null,
+      mapping: null,
+      weight: null,
+      state: null,
+      ...extra,
+    });
+  }
+
+  /** 상위 클래스 fp:Product와 그 하위 클래스 하나. */
+  concept(id: string, label: string, iri: string): string {
+    if (!this.nodes.some((n) => n.id === "c0"))
+      this.node("c0", "concept", "금융상품", { iri: "fp:Product" });
+    this.node(id, "concept", label, { iri });
+    this.edge(id, "c0", "subclass");
+    return id;
+  }
+
+  /** 집합 → 상품 노드(최대 5개, 인용 먼저). */
+  products(
+    from: string,
+    domain: DomainKey,
+    rows: Array<{ id: string; name: string }>,
+    cited: number,
+    prefix: string,
+  ): void {
+    rows.slice(0, 5).forEach((row, i) => {
+      const id = this.node(`${prefix}${i}`, "product", row.name, {
+        domain,
+        product_id: row.id,
+        cited: i < cited,
+      });
+      this.edge(from, id, "member");
+    });
+  }
+
+  build(): SearchGraph {
+    return { nodes: this.nodes, edges: this.edges };
+  }
+}
+
+const EMPTY_GRAPH: SearchGraph = { nodes: [], edges: [] };
+
+/** 국내 상장 좁히기: 클래스 —listedOn→ 국내시장. */
+function listedDomestic(g: GraphBuilder, concept: string, mapping: number) {
+  g.node("v1", "individual", "국내시장", { iri: "etf:Market_KRX", mapping });
+  g.edge(concept, "v1", "property", { label: "listedOn", mapping });
+}
+
+function answeredGraph(): SearchGraph {
+  const g = new GraphBuilder();
+  const etf = g.concept("c1", "ETF", "fp:ETF");
+  listedDomestic(g, etf, 1);
+  g.node("s0", "set", "국내 ETF 전체", {
+    count: 1180,
+    domain: "kr_etf",
+    mapping: 1,
+  });
+  g.edge(etf, "s0", "scope", { mapping: 1 });
+  g.node("s1", "set", "순자산 ↓ 상위 5", {
+    count: 5,
+    domain: "kr_etf",
+    mapping: 2,
+  });
+  g.edge("s0", "s1", "constraint", { mapping: 0 });
+  g.products("s1", "kr_etf", ETF_SEEDS, 3, "p");
+  return g.build();
+}
+
+function caveatGraph(): SearchGraph {
+  const g = new GraphBuilder();
+  const etp = g.concept("c1", "ETF·ETN", "etf:ExchangeTradedProduct");
+  listedDomestic(g, etp, 2);
+  g.node("s0", "set", "국내 ETF 전체", {
+    count: 1180,
+    domain: "kr_etf",
+    mapping: 2,
+  });
+  g.edge(etp, "s0", "scope", { mapping: 2 });
+  g.node("s1", "set", "퇴직연금 = 가능", {
+    count: 412,
+    domain: "kr_etf",
+    mapping: 0,
+  });
+  g.edge("s0", "s1", "constraint", { mapping: 0 });
+  g.node("s2", "set", "총보수 < 0.2%", {
+    count: 7,
+    domain: "kr_etf",
+    mapping: 1,
+  });
+  g.edge("s1", "s2", "constraint", { mapping: 1 });
+  g.node("s3", "set", "순자산 ↓ 상위 10", {
+    count: 7,
+    domain: "kr_etf",
+    mapping: 4,
+  });
+  g.edge("s2", "s3", "constraint", { mapping: 3 });
+  g.products(
+    "s3",
+    "kr_etf",
+    ETF_SEEDS.filter((s) => s.fee < 0.2),
+    1,
+    "p",
+  );
+
+  g.node("t0", "set", "국내 ETN 전체", {
+    count: 312,
+    domain: "kr_etn",
+    mapping: 2,
+  });
+  g.edge(etp, "t0", "scope", { mapping: 2 });
+  g.node("tx", "set", "퇴직연금 값 없음 · 제외", {
+    count: 4,
+    domain: "kr_etn",
+    state: "absent",
+  });
+  g.edge("t0", "tx", "constraint", { mapping: 0, state: "absent" });
+  g.node("t1", "set", "퇴직연금 = 가능", {
+    count: 6,
+    domain: "kr_etn",
+    mapping: 0,
+  });
+  g.edge("t0", "t1", "constraint", { mapping: 0 });
+  g.node("t2", "set", "총보수 < 0.2%", {
+    count: 2,
+    domain: "kr_etn",
+    mapping: 1,
+  });
+  g.edge("t1", "t2", "constraint", { mapping: 1 });
+  g.products(
+    "t2",
+    "kr_etn",
+    [
+      { id: "DMON007", name: "DEMO 레버리지 금 선물 ETN" },
+      { id: "SMPN012", name: "SAMPLE 미국채10년 ETN" },
+    ],
+    0,
+    "q",
+  );
+  return g.build();
+}
+
+function noResultGraph(): SearchGraph {
+  const g = new GraphBuilder();
+  const etf = g.concept("c1", "ETF", "fp:ETF");
+  listedDomestic(g, etf, 2);
+  g.node("s0", "set", "국내 ETF 전체", {
+    count: 1180,
+    domain: "kr_etf",
+    mapping: 2,
+  });
+  g.edge(etf, "s0", "scope", { mapping: 2 });
+  g.node("s1", "set", "총보수 < 0.01%", {
+    count: 3,
+    domain: "kr_etf",
+    mapping: 0,
+  });
+  g.edge("s0", "s1", "constraint", { mapping: 0 });
+  g.node("s2", "set", "1년 수익률 ≥ 50%", {
+    count: 0,
+    domain: "kr_etf",
+    mapping: 1,
+    state: "empty",
+  });
+  g.edge("s1", "s2", "constraint", { mapping: 1, state: "empty" });
+  return g.build();
+}
+
+function notCollectedGraph(): SearchGraph {
+  const g = new GraphBuilder();
+  const etf = g.concept("c1", "ETF", "fp:ETF");
+  listedDomestic(g, etf, 2);
+  g.node("s0", "set", "국내 ETF 전체", {
+    count: 1180,
+    domain: "kr_etf",
+    mapping: 2,
+  });
+  g.edge(etf, "s0", "scope", { mapping: 2 });
+  g.node("s1", "set", "거래량 ↓", {
+    domain: "kr_etf",
+    mapping: 1,
+    state: "absent",
+  });
+  g.edge("s0", "s1", "constraint", { mapping: 1, state: "absent" });
+  return g.build();
+}
+
+function unavailableGraph(): SearchGraph {
+  const g = new GraphBuilder();
+  const etf = g.concept("c1", "ETF", "fp:ETF");
+  listedDomestic(g, etf, 2);
+  g.node("s0", "set", "국내 ETF 전체", {
+    count: 1180,
+    domain: "kr_etf",
+    mapping: 2,
+  });
+  g.edge(etf, "s0", "scope", { mapping: 2 });
+  g.node("s1", "set", "SAMPLE전자 편입", {
+    domain: "kr_etf",
+    mapping: 1,
+    state: "blocked",
+  });
+  g.edge("s0", "s1", "constraint", { mapping: 1, state: "blocked" });
+  g.node("e1", "entity", "SAMPLE전자", {
+    entity_type: "Constituent",
+    mapping: 0,
+  });
+  g.edge("s1", "e1", "relation", {
+    label: "HOLDS",
+    mapping: 0,
+    state: "blocked",
+  });
+  return g.build();
+}
+
+function ambiguousGraph(): SearchGraph {
+  const g = new GraphBuilder();
+  const bond = g.concept("c1", "채권", "fp:Bond");
+  g.node("s0", "set", "채권 전체", { count: 4210, domain: "bond", mapping: 1 });
+  g.edge(bond, "s0", "scope", { mapping: 1 });
+  g.node("s1", "set", "신용등급 = ?", {
+    domain: "bond",
+    mapping: 0,
+    state: "ambiguous",
+  });
+  g.edge("s0", "s1", "constraint", { mapping: 0, state: "ambiguous" });
+  ["AAA", "AA-", "A-"].forEach((grade, i) => {
+    g.node(`g${i}`, "individual", `${grade}${i === 0 ? "" : " 이상"}`, {
+      iri: `fp:Grade_${grade.replace("-", "minus")}`,
+    });
+    g.edge("s1", `g${i}`, "property", {
+      label: "creditGrade",
+      state: "ambiguous",
+    });
+  });
+  return g.build();
+}
+
+function countGraph(): SearchGraph {
+  const g = new GraphBuilder();
+  const etp = g.concept("c1", "ETF·ETN", "etf:ExchangeTradedProduct");
+  listedDomestic(g, etp, 0);
+  g.node("s0", "set", "국내 ETN 전체", {
+    count: 312,
+    domain: "kr_etn",
+    mapping: 1,
+  });
+  g.edge(etp, "s0", "scope", { mapping: 0 });
+  return g.build();
+}
+
+function bondGraph(): SearchGraph {
+  const g = new GraphBuilder();
+  const bond = g.concept("c1", "채권", "fp:Bond");
+  g.node("s0", "set", "채권 전체", { count: 4210, domain: "bond", mapping: 2 });
+  g.edge(bond, "s0", "scope", { mapping: 2 });
+  g.node("s1", "set", "신용등급 ≥ AA0", {
+    count: 37,
+    domain: "bond",
+    mapping: 0,
+  });
+  g.edge("s0", "s1", "constraint", { mapping: 0 });
+  g.node("s2", "set", "후순위 = 아님", {
+    count: 4,
+    domain: "bond",
+    mapping: 1,
+  });
+  g.edge("s1", "s2", "constraint", { mapping: 1 });
+  g.node("s3", "set", "표면금리 ↓ 상위 10", {
+    count: 4,
+    domain: "bond",
+    mapping: 4,
+  });
+  g.edge("s2", "s3", "constraint", { mapping: 3 });
+  g.products("s3", "bond", BOND_SEEDS, 2, "p");
+  return g.build();
+}
+
+function caveatOutageGraph(): SearchGraph {
+  const g = new GraphBuilder();
+  const etp = g.concept("c1", "ETF·ETN", "etf:ExchangeTradedProduct");
+  listedDomestic(g, etp, 1);
+  g.node("s0", "set", "국내 ETF 전체", {
+    count: 1180,
+    domain: "kr_etf",
+    mapping: 1,
+  });
+  g.edge(etp, "s0", "scope", { mapping: 1 });
+  g.node("s1", "set", "총보수 < 0.2%", {
+    count: 7,
+    domain: "kr_etf",
+    mapping: 0,
+  });
+  g.edge("s0", "s1", "constraint", { mapping: 0 });
+  g.node("s2", "set", "순자산 ↓ 상위 10", {
+    count: 7,
+    domain: "kr_etf",
+    mapping: 3,
+  });
+  g.edge("s1", "s2", "constraint", { mapping: 2 });
+  g.products(
+    "s2",
+    "kr_etf",
+    ETF_SEEDS.filter((s) => s.fee < 0.2),
+    1,
+    "p",
+  );
+  g.node("t0", "set", "국내 ETN", {
+    domain: "kr_etn",
+    mapping: 1,
+    state: "blocked",
+  });
+  g.edge(etp, "t0", "scope", { mapping: 1, state: "blocked" });
+  return g.build();
+}
+
 export const answered: SearchResponse = {
   request_id: "mock-answered-0001",
   question: "순자산 큰 국내 ETF 5개",
@@ -322,6 +681,7 @@ export const answered: SearchResponse = {
     ],
   },
   interpretation: {
+    graph: answeredGraph(),
     mappings: mappings("순자산 큰 국내 ETF 5개", [
       ["sort", "순자산 큰", "순자산 ↓", "rule", "'큰'·'많은'은 내림차순"],
       ["domain", "국내 ETF", "국내 ETF", "synonym", "상품군 사전 일치"],
@@ -400,6 +760,7 @@ export const caveat: SearchResponse = {
     ],
   },
   interpretation: {
+    graph: caveatGraph(),
     mappings: mappings(
       "퇴직연금 가능하고 총보수 0.2% 미만인 ETF·ETN 순자산 큰 순",
       [
@@ -551,6 +912,7 @@ export const noResult: SearchResponse = {
     notices: [],
   },
   interpretation: {
+    graph: noResultGraph(),
     mappings: mappings("총보수 0.01% 미만이고 1년 수익률 50% 이상인 국내 ETF", [
       [
         "condition",
@@ -644,6 +1006,7 @@ export const notCollected: SearchResponse = {
     ],
   },
   interpretation: {
+    graph: notCollectedGraph(),
     mappings: mappings("어제 거래량 많은 국내 ETF", [
       [
         "time",
@@ -708,6 +1071,7 @@ export const unavailable: SearchResponse = {
     ],
   },
   interpretation: {
+    graph: unavailableGraph(),
     mappings: mappings("SAMPLE전자를 편입한 국내 ETF", [
       [
         "entity",
@@ -783,6 +1147,7 @@ export const ambiguous: SearchResponse = {
     notices: [],
   },
   interpretation: {
+    graph: ambiguousGraph(),
     mappings: mappings("신용등급 좋은 채권", [
       [
         "condition",
@@ -851,6 +1216,7 @@ export const refused: SearchResponse = {
     ],
   },
   interpretation: {
+    graph: EMPTY_GRAPH,
     mappings: mappings("앞으로 오를 ETF 추천해줘", [
       ["policy", "앞으로 오를", "가격 전망", "rule", "미래 가격을 묻는 표현"],
       [
@@ -898,6 +1264,7 @@ export const errorOutcome: SearchResponse = {
     notices: [],
   },
   interpretation: {
+    graph: EMPTY_GRAPH,
     mappings: mappings("오류 재현", []),
     domains: [],
     conditions: [],
@@ -949,6 +1316,7 @@ export const count: SearchResponse = {
     notices: [],
   },
   interpretation: {
+    graph: countGraph(),
     mappings: mappings("국내 상장 ETN은 몇 개야?", [
       ["domain", "국내 상장 ETN", "국내 ETN", "rule", "'국내 상장' → 국내 ETN"],
       ["aggregate", "몇 개", "개수 세기", "pattern", "'몇 개' → 개수 집계"],
@@ -1008,6 +1376,7 @@ export const bond: SearchResponse = {
     notices: [],
   },
   interpretation: {
+    graph: bondGraph(),
     mappings: mappings("신용등급 AA0 이상, 후순위 아닌 채권 표면금리 높은 순", [
       [
         "condition",
@@ -1134,6 +1503,7 @@ export const caveatOutage: SearchResponse = {
     ],
   },
   interpretation: {
+    graph: caveatOutageGraph(),
     mappings: mappings("총보수 0.2% 미만 ETF·ETN 순자산 큰 순", [
       [
         "condition",

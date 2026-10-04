@@ -193,7 +193,81 @@ export interface InterpretationMapping {
   note: string | null;
 }
 
+export const GRAPH_NODE_KINDS = [
+  "concept",
+  "individual",
+  "set",
+  "product",
+  "entity",
+] as const;
+export type GraphNodeKind = (typeof GRAPH_NODE_KINDS)[number];
+
+export const GRAPH_EDGE_KINDS = [
+  "subclass",
+  "property",
+  "scope",
+  "constraint",
+  "member",
+  "relation",
+] as const;
+export type GraphEdgeKind = (typeof GRAPH_EDGE_KINDS)[number];
+
+export const GRAPH_STATES = [
+  "ok",
+  "empty",
+  "absent",
+  "blocked",
+  "ambiguous",
+] as const;
+export type GraphState = (typeof GRAPH_STATES)[number];
+
+export const ENTITY_TYPES = [
+  "Constituent",
+  "Ksic",
+  "Industry",
+  "AssetManagementCompany",
+  "BusinessGroup",
+  "Index",
+] as const;
+export type EntityType = (typeof ENTITY_TYPES)[number];
+
+/** [r8] 탐색 그래프 노드. 모든 필드가 항상 온다(해당 없으면 null·false). */
+export interface GraphNode {
+  id: string;
+  kind: GraphNodeKind;
+  label: string;
+  iri: string | null;
+  count: number | null;
+  domain: DomainKey | null;
+  product_id: string | null;
+  cited: boolean;
+  entity_type: EntityType | null;
+  mapping: number | null;
+  state: GraphState | null;
+}
+
+export interface GraphEdge {
+  from: string;
+  to: string;
+  kind: GraphEdgeKind;
+  label: string | null;
+  mapping: number | null;
+  weight: string | null;
+  state: GraphState | null;
+}
+
+/**
+ * [r8] 탐색 그래프: 질문에 쓴 온톨로지 개념 → 조건마다 줄어드는 상품 집합 → 결과 상품 →
+ * 지식그래프 관계. 못 만들면 nodes·edges가 모두 비어 있다.
+ */
+export interface SearchGraph {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+}
+
 export interface Interpretation {
+  /** [r8] 탐색 그래프. */
+  graph: SearchGraph;
   /** [r6] 해석 과정. 서버가 아직 기록하지 못하면 []. */
   mappings: InterpretationMapping[];
   domains: InterpretedDomain[];

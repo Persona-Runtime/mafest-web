@@ -23,3 +23,21 @@ export function useCiteFocus(): CiteFocus {
 export function rowDomId(domain: string, productId: string): string {
   return `row-${domain}-${productId}`.replace(/[^A-Za-z0-9_-]/g, "_");
 }
+
+/**
+ * 해석 과정 번호 강조. 질문 밑줄·해석 목록·탐색 그래프가 같은 번호(mapping 순번)를 함께
+ * 강조한다. 하나에 마우스를 올리거나 초점을 주면 나머지도 따라 켜진다.
+ */
+export interface MappingFocus {
+  active: number | null;
+  setActive: (index: number | null) => void;
+}
+
+export const MappingFocusContext = createContext<MappingFocus>({
+  active: null,
+  setActive: () => {},
+});
+
+export function useMappingFocus(): MappingFocus {
+  return useContext(MappingFocusContext);
+}

@@ -2187,3 +2187,409 @@ a {
 .shell__main {
   padding-bottom: var(--space-8);
 }
+
+/* ---------------------------------------------------------------------------
+   탐색 그래프(r8). 클래스 = 남색, 집합 = 흰 상자 + 건수, 상품 = 알약(인용은 주황),
+   관계 개체 = 보라. 상태: 0건·장애 = 빨강, 수집 안 함·선택 필요 = 점선.
+   --------------------------------------------------------------------------- */
+.graph {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.graph__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+}
+
+.graph .graph__title {
+  color: var(--muted);
+  font-size: var(--text-s);
+  letter-spacing: 0.02em;
+}
+
+.graph__narrow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.narrow {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  font-size: var(--text-s);
+  color: var(--muted);
+}
+
+.narrow__name {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.narrow strong {
+  color: var(--navy);
+}
+
+.narrow--empty strong,
+.narrow--danger strong {
+  color: var(--danger);
+}
+
+.narrow--warn strong {
+  color: var(--warn-ink);
+}
+
+.graph__canvas {
+  overflow-x: auto;
+  border-radius: var(--radius-m);
+  background:
+    radial-gradient(circle, rgb(11 58 111 / 7%) 1px, transparent 1.2px) 0 0 /
+      16px 16px,
+    var(--surface-2);
+  border: 1px solid var(--line);
+}
+
+.graph__canvas--h .graph__svg {
+  display: block;
+  margin: 0 auto;
+}
+
+.graph__canvas--v .graph__svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.graph__svg {
+  font-family: inherit;
+  font-size: 12px;
+}
+
+/* 간선 */
+.gedge {
+  fill: none;
+  stroke: var(--line-strong);
+  stroke-width: 1.5;
+  transition: opacity 0.15s;
+}
+
+.gedge--subclass {
+  stroke: var(--navy);
+  stroke-opacity: 0.55;
+}
+
+.gedge--property {
+  stroke: var(--navy-2);
+  stroke-dasharray: 5 4;
+}
+
+.gedge--scope,
+.gedge--constraint {
+  stroke: var(--navy);
+  stroke-width: 2;
+  stroke-opacity: 0.7;
+}
+
+.gedge--member {
+  stroke: var(--line-strong);
+}
+
+.gedge--relation {
+  stroke: #7c3aed;
+}
+
+.gedge.gstate--absent,
+.gedge.gstate--ambiguous {
+  stroke: var(--warn);
+  stroke-dasharray: 4 4;
+  stroke-opacity: 1;
+}
+
+.gedge.gstate--blocked,
+.gedge.gstate--empty {
+  stroke: var(--danger);
+  stroke-dasharray: 4 4;
+  stroke-opacity: 1;
+}
+
+.gedge.gstate--empty {
+  stroke-dasharray: none;
+}
+
+.gm path {
+  fill: var(--line-strong);
+}
+
+.gm--default path {
+  fill: var(--navy);
+  fill-opacity: 0.7;
+}
+
+.gm--relation path {
+  fill: #7c3aed;
+}
+
+.gm--danger path {
+  fill: var(--danger);
+}
+
+.gm--subclass path {
+  fill: var(--surface);
+  stroke: var(--navy);
+  stroke-width: 1.4;
+}
+
+.gedge-label {
+  fill: var(--navy-2);
+  font-size: 11px;
+  paint-order: stroke;
+  stroke: var(--surface-2);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+
+.gedge-label--relation {
+  fill: #6d28d9;
+}
+
+.gbadge circle {
+  fill: var(--slot, var(--navy));
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+
+.gbadge text {
+  fill: #fff;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* 노드 */
+.gnode {
+  transition: opacity 0.15s;
+}
+
+.gnode rect {
+  fill: var(--surface);
+  stroke: var(--line-strong);
+  stroke-width: 1.2;
+}
+
+.gnode text {
+  fill: var(--ink);
+}
+
+.gnode--concept rect {
+  fill: var(--navy);
+  stroke: var(--navy);
+}
+
+.gnode--concept text {
+  fill: #fff;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.gnode--individual rect {
+  fill: var(--navy-soft);
+  stroke: var(--navy-2);
+  stroke-dasharray: 3 2;
+}
+
+.gnode--individual text {
+  fill: var(--navy);
+}
+
+.gnode--set rect {
+  stroke: var(--navy);
+  stroke-opacity: 0.45;
+}
+
+.gnode__count {
+  font-size: 13px;
+  font-weight: 600;
+  fill: var(--navy) !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.gnode--set.gstate--empty rect {
+  stroke: var(--danger);
+  stroke-opacity: 1;
+  fill: var(--danger-soft);
+}
+
+.gnode--set.gstate--empty .gnode__count,
+.gnode--set.gstate--blocked .gnode__count {
+  fill: var(--danger) !important;
+}
+
+.gnode--set.gstate--blocked rect {
+  stroke: var(--danger);
+  stroke-opacity: 1;
+  stroke-dasharray: 5 3;
+}
+
+.gnode--set.gstate--absent rect,
+.gnode--set.gstate--ambiguous rect {
+  stroke: var(--warn);
+  stroke-opacity: 1;
+  stroke-dasharray: 5 3;
+  fill: var(--warn-soft);
+}
+
+.gnode--set.gstate--absent .gnode__count,
+.gnode--set.gstate--ambiguous .gnode__count {
+  fill: var(--warn-ink) !important;
+}
+
+.gnode--product {
+  cursor: pointer;
+}
+
+.gnode--product rect {
+  stroke: var(--line-strong);
+}
+
+.gnode--product:hover rect,
+.gnode--product:focus-visible rect {
+  stroke: var(--accent);
+  fill: var(--accent-soft);
+}
+
+.gnode--product:focus-visible {
+  outline: none;
+}
+
+.gnode--product:focus-visible rect {
+  stroke-width: 2.5;
+}
+
+.gnode--cited rect {
+  stroke: var(--accent);
+  stroke-width: 1.6;
+}
+
+.gnode__star {
+  fill: var(--brand);
+}
+
+.gnode--entity rect {
+  fill: #efe7fd;
+  stroke: #7c3aed;
+}
+
+.gnode--entity.gstate--blocked rect {
+  stroke-dasharray: 5 3;
+}
+
+.gnode__type {
+  font-size: 10px;
+  fill: #6d28d9 !important;
+}
+
+/* 해석 번호 강조: 하나를 가리키면 나머지는 흐리게 */
+.graph__canvas[data-focusing] .gedge:not([data-active]),
+.graph__canvas[data-focusing] .gnode:not([data-active]),
+.graph__canvas[data-focusing] .glabel:not([data-active]) {
+  opacity: 0.3;
+}
+
+.gedge[data-active] {
+  stroke-width: 3;
+  stroke-opacity: 1;
+}
+
+.gnode[data-active] rect {
+  stroke-width: 2.4;
+  stroke-opacity: 1;
+}
+
+.gbadge {
+  cursor: default;
+}
+
+/* 범례 */
+.graph__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-s);
+  color: var(--muted);
+}
+
+.graph__legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lg {
+  display: inline-block;
+  width: 18px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1.2px solid var(--line-strong);
+  background: var(--surface);
+}
+
+.lg--concept {
+  background: var(--navy);
+  border-color: var(--navy);
+}
+
+.lg--individual {
+  background: var(--navy-soft);
+  border: 1.2px dashed var(--navy-2);
+  border-radius: 999px;
+}
+
+.lg--set {
+  border-color: rgb(11 58 111 / 45%);
+}
+
+.lg--product {
+  border-radius: 999px;
+  border-color: var(--accent);
+}
+
+.lg--entity {
+  background: #efe7fd;
+  border-color: #7c3aed;
+}
+
+.lg-star {
+  color: var(--brand);
+}
+
+.lg-line {
+  display: inline-block;
+  width: 22px;
+  height: 0;
+  border-top: 2px solid rgb(11 58 111 / 70%);
+}
+
+.lg-line--property {
+  border-top: 1.5px dashed var(--navy-2);
+}
+
+@media (max-width: 719px) {
+  .graph__head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

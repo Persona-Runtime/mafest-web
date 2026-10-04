@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: 금융상품 질의 검색 공개 API
-  version: 1.1.0
+  version: 1.2.0
   description: |
     mafest-web이 쓰는 공개 API(`/v1`). 사람이 읽는 설명은 mafest
     `docs/plans/39_공개API_명세.md`, 이 파일은 기계가 검사하는 정본이다.
@@ -338,11 +338,71 @@ components:
           type: [string, "null"]
           description: 왜 이렇게 읽었는지 한 줄. 예 "상장시장 낱말이 없으면 국내 상장으로 좁힘"
 
-    Interpretation:
+    GraphState:
+      description: |
+        ok=정상, empty=조건 적용 후 0건, absent=수집하지 않은 축, blocked=저장소 장애,
+        ambiguous=기준이 모호해 선택 필요
+      type: [string, "null"]
+      enum: [ok, empty, absent, blocked, ambiguous, null]
+    GraphNode:
+      description: |
+        [r8] 탐색 그래프 노드. concept=온톨로지 클래스, individual=온톨로지 값(NamedIndividual·
+        sh:in 값), set=조건을 적용한 상품 집합(건수), product=결과 상품, entity=지식그래프
+        엔티티(구성종목·업종·운용사·기업집단·지수).
       type: object
-      required: [domains, conditions, sort, limit, mappings]
+      required: [id, kind, label, iri, count, domain, product_id, cited, entity_type, mapping, state]
       additionalProperties: false
       properties:
+        id: { type: string, pattern: "^[A-Za-z0-9_-]{1,32}$" }
+        kind: { type: string, enum: [concept, individual, set, product, entity] }
+        label: { type: string, minLength: 1, maxLength: 60 }
+        iri: { type: [string, "null"], description: "접두 IRI(fp:ETF 등). concept·individual만" }
+        count: { type: [integer, "null"], minimum: 0, description: "set만. 그 단계까지 남은 상품 수" }
+        domain:
+          oneOf:
+            - { $ref: "#/components/schemas/DomainKey" }
+            - { type: "null" }
+        product_id: { type: [string, "null"], description: "product만. /v1/products 경로 id" }
+        cited: { type: boolean, description: "product가 답변에 인용됐는가. 그 밖은 false" }
+        entity_type:
+          type: [string, "null"]
+          enum: [Constituent, Ksic, Industry, AssetManagementCompany, BusinessGroup, Index, null]
+        mapping: { type: [integer, "null"], minimum: 0, description: "interpretation.mappings 번호(0부터)" }
+        state: { $ref: "#/components/schemas/GraphState" }
+    GraphEdge:
+      type: object
+      required: [from, to, kind, label, mapping, weight, state]
+      additionalProperties: false
+      properties:
+        from: { type: string }
+        to: { type: string }
+        kind:
+          type: string
+          enum: [subclass, property, scope, constraint, member, relation]
+          description: |
+            subclass=하위 클래스→상위 클래스, property=클래스→값(온톨로지 속성), scope=클래스→첫 상품 집합,
+            constraint=집합→좁힌 집합, member=집합→상품, relation=지식그래프 관계(HOLDS 등)
+        label: { type: [string, "null"], maxLength: 40, description: "property 이름(listedOn)·관계 유형(HOLDS)" }
+        mapping: { type: [integer, "null"], minimum: 0 }
+        weight: { type: [string, "null"], description: "관계 표시값. 예 24.1%" }
+        state: { $ref: "#/components/schemas/GraphState" }
+    SearchGraph:
+      description: |
+        [r8] 탐색 그래프. 질문에 쓴 온톨로지 개념 → 조건마다 줄어드는 상품 집합 → 결과 상품 →
+        지식그래프 관계. 질문에 쓰지 않은 개념은 넣지 않는다. 못 만들면 nodes·edges 모두 [].
+      type: object
+      required: [nodes, edges]
+      additionalProperties: false
+      properties:
+        nodes: { type: array, maxItems: 40, items: { $ref: "#/components/schemas/GraphNode" } }
+        edges: { type: array, maxItems: 60, items: { $ref: "#/components/schemas/GraphEdge" } }
+
+    Interpretation:
+      type: object
+      required: [domains, conditions, sort, limit, mappings, graph]
+      additionalProperties: false
+      properties:
+        graph: { $ref: "#/components/schemas/SearchGraph" }
         mappings:
           type: array
           maxItems: 20

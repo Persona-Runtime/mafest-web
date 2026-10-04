@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { CiteFocusContext } from "../lib/citeFocus";
+import { CiteFocusContext, MappingFocusContext } from "../lib/citeFocus";
 import type { CiteTarget } from "../lib/explain";
 import type { ResultRow, SearchResponse } from "../lib/types";
 import { TABLE_QUERY, useMediaQuery } from "../lib/useMediaQuery";
@@ -8,6 +8,7 @@ import { Icon } from "./Icon";
 import { InterpretationCard } from "./InterpretationCard";
 import { ProcessView } from "./ProcessView";
 import { QuestionChips } from "./QuestionChips";
+import { SearchGraph } from "./SearchGraph";
 import { ResultGroupView } from "./ResultGroup";
 
 type Tone = "info" | "warn" | "danger";
@@ -50,12 +51,19 @@ function StateBox({
   );
 }
 
-type View = "result" | "process";
+type View = "result" | "graph" | "process";
+
+const VIEW_LABEL: Record<View, string> = {
+  result: "결과",
+  graph: "그래프",
+  process: "처리 과정",
+};
 
 /**
- * 결과 화면 전체(37 4-3 + W7). 구성은 위에서부터
- *   ① 질문 해석(대상·조건·정렬) ② 어떻게 답했나(처리 단계·판정·시간) ③ outcome별 본문.
- * 좁은 화면(<720px)에서는 ①을 늘 보이고, ②와 ③을 [결과 | 처리 과정] 전환으로 나눈다.
+ * 결과 화면 전체(37 4-3 + W7 + r8). 구성은 위에서부터
+ *   ① 질문 해석(대상·조건·정렬) ② 탐색 그래프(온톨로지 → 집합 → 상품)
+ *   ③ 어떻게 답했나(처리 단계·판정·시간) ④ outcome별 본문.
+ * 좁은 화면(<720px)에서는 ①을 늘 보이고, 나머지를 [결과 | 그래프 | 처리 과정] 전환으로 나눈다.
  * 생성 모델이 꺼진 경우(generated_by=fallback)는 outcome과 별개로 맨 위 배너를 띄운다.
  */
 export function OutcomeView({
@@ -72,8 +80,15 @@ export function OutcomeView({
   const wide = useMediaQuery(TABLE_QUERY);
   const [view, setView] = useState<View>("result");
   const [focus, setFocus] = useState<CiteTarget | null>(null);
+  const [active, setActive] = useState<number | null>(null);
   const hasProcess = response.trace !== null;
-  const tabs = !wide && hasProcess;
+  const hasGraph = response.interpretation.graph.nodes.length > 0;
+  const views: View[] = [
+    "result",
+    ...(hasGraph ? (["graph"] as const) : []),
+    ...(hasProcess ? (["process"] as const) : []),
+  ];
+  const tabs = !wide && views.length > 1;
 
   const banner = response.answer.generated_by === "fallback" && (
     <div className="banner banner--warn" role="status">
@@ -91,48 +106,53 @@ export function OutcomeView({
     />
   );
 
+  const graph = <SearchGraph response={response} onOpen={onOpen} />;
+  const panel: Record<View, ReactNode> = {
+    result: body,
+    graph,
+    process: <ProcessView response={response} />,
+  };
+
   return (
     <CiteFocusContext.Provider value={{ focus, setFocus }}>
-      {banner}
-      <InterpretationCard response={response} />
-      {tabs ? (
-        <>
-          <div className="seg" role="tablist" aria-label="결과 보기 방식">
-            {(
-              [
-                ["result", "결과"],
-                ["process", "처리 과정"],
-              ] as const
-            ).map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                role="tab"
-                id={`tab-${key}`}
-                aria-selected={view === key}
-                aria-controls={`panel-${key}`}
-                className="seg__tab"
-                onClick={() => setView(key)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          <div
-            role="tabpanel"
-            id={`panel-${view}`}
-            aria-labelledby={`tab-${view}`}
-            className="seg__panel"
-          >
-            {view === "result" ? body : <ProcessView response={response} />}
-          </div>
-        </>
-      ) : (
-        <>
-          <ProcessView response={response} />
-          {body}
-        </>
-      )}
+      <MappingFocusContext.Provider value={{ active, setActive }}>
+        {banner}
+        <InterpretationCard response={response} />
+        {tabs ? (
+          <>
+            <div className="seg" role="tablist" aria-label="결과 보기 방식">
+              {views.map((key) => (
+                <button
+                  key={key}
+                  type="button"
+                  role="tab"
+                  id={`tab-${key}`}
+                  aria-selected={view === key}
+                  aria-controls={`panel-${key}`}
+                  className="seg__tab"
+                  onClick={() => setView(key)}
+                >
+                  {VIEW_LABEL[key]}
+                </button>
+              ))}
+            </div>
+            <div
+              role="tabpanel"
+              id={`panel-${view}`}
+              aria-labelledby={`tab-${view}`}
+              className="seg__panel"
+            >
+              {panel[view]}
+            </div>
+          </>
+        ) : (
+          <>
+            {graph}
+            {panel.process}
+            {body}
+          </>
+        )}
+      </MappingFocusContext.Provider>
     </CiteFocusContext.Provider>
   );
 }
