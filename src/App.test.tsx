@@ -230,10 +230,8 @@ describe("결과 — outcome 8종", () => {
     await user.hover(within(how).getAllByRole("listitem")[0]);
     expect(canvas).toHaveAttribute("data-focusing");
     expect(
-      [...canvas.querySelectorAll("[data-active]")].map((e) =>
-        e.getAttribute("class"),
-      ),
-    ).toContain("gedge gedge--constraint gstate--ok");
+      canvas.querySelector(".gedge--constraint[data-active]"),
+    ).not.toBeNull();
     await user.unhover(within(how).getAllByRole("listitem")[0]);
     expect(canvas).not.toHaveAttribute("data-focusing");
 
@@ -268,6 +266,96 @@ describe("결과 — outcome 8종", () => {
     expect(graph).toHaveTextContent("구성종목");
     expect(graph).toHaveTextContent("HOLDS");
     expect(screen.queryByRole("region", { name: "답변" })).toBeNull();
+  });
+
+  test("탐색 그래프: 화면에 들어오면 층 순서대로 등장, 다시 보기로 재생", async () => {
+    setViewport(1280);
+    const observed: Element[] = [];
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        constructor(private cb: IntersectionObserverCallback) {}
+        observe(el: Element) {
+          observed.push(el);
+          this.cb(
+            [{ isIntersecting: true, target: el } as IntersectionObserverEntry],
+            this as unknown as IntersectionObserver,
+          );
+        }
+        disconnect() {}
+      },
+    );
+    try {
+      const { user } = renderApp({
+        api: respondWith(caveat),
+        path: searchPath(caveat.question),
+      });
+      const graph = await screen.findByRole("region", { name: "탐색 그래프" });
+      const canvas = graph.querySelector(".graph__canvas")!;
+      await waitFor(() =>
+        expect(canvas).toHaveAttribute("data-anim", "playing"),
+      );
+      expect(observed).toContain(canvas);
+
+      // 상위 클래스 → 첫 집합 → 상품 순으로 늦게 나타난다
+      const delayOf = (text: string) => {
+        const node = [...canvas.querySelectorAll(".gnode")].find((n) =>
+          n.textContent?.includes(text),
+        )!;
+        return parseInt(
+          (node.parentElement as HTMLElement).style.getPropertyValue("--d"),
+        );
+      };
+      expect(delayOf("금융상품")).toBe(0);
+      expect(delayOf("국내 ETF 전체")).toBeGreaterThan(delayOf("ETF·ETN"));
+      expect(delayOf("SAMPLE 코스피200")).toBeGreaterThan(
+        delayOf("순자산 ↓ 상위 10"),
+      );
+      // 선은 앞 노드가 나타날 때 긋기 시작해 뒤 노드가 나타날 때 끝난다
+      const drawn = canvas.querySelectorAll(".gedge--draw");
+      expect(drawn.length).toBeGreaterThan(0);
+      expect(drawn[0]).toHaveAttribute("pathLength", "1");
+
+      const svg = canvas.querySelector("svg");
+      await user.click(
+        within(graph).getByRole("button", { name: "다시 보기" }),
+      );
+      expect(canvas.querySelector("svg")).not.toBe(svg);
+      expect(canvas).toHaveAttribute("data-anim", "playing");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("탐색 그래프: 동작 줄이기 설정이면 애니메이션 없이 바로 보인다", async () => {
+    setViewport(1280);
+    const base = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      ...base(query),
+      matches: query.includes("prefers-reduced-motion") || base(query).matches,
+    })) as typeof window.matchMedia;
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        observe() {}
+        disconnect() {}
+      },
+    );
+    try {
+      renderApp({
+        api: respondWith(caveat),
+        path: searchPath(caveat.question),
+      });
+      const graph = await screen.findByRole("region", { name: "탐색 그래프" });
+      expect(graph.querySelector(".graph__canvas")).not.toHaveAttribute(
+        "data-anim",
+      );
+      expect(
+        within(graph).queryByRole("button", { name: "다시 보기" }),
+      ).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   test("거절·오류는 그래프를 그리지 않는다", async () => {
