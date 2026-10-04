@@ -1,29 +1,48 @@
 import { Link } from "react-router";
 import { CoverageTable, InvestmentNotice } from "../components/Common";
+import { Stepper, type StepItem } from "../components/Stepper";
 import { useTitle } from "../lib/useTitle";
 import { UNOFFICIAL_NOTICE } from "../lib/site";
 import type { Meta } from "../lib/types";
 import type { RequestState } from "../lib/useRequest";
 
-const PIPELINE: Array<[string, string]> = [
-  ["라우팅", "질문에서 상품군, 조건, 정렬 기준을 읽어 냅니다."],
-  [
-    "조회",
-    "PostgreSQL에서 SQL로, 구성종목·운용사 같은 관계는 그래프 확장(Apache AGE)에서 Cypher로 찾습니다. 읽기 전용 계정으로 실행합니다.",
-  ],
-  ["연산", "개수, 평균처럼 계산이 필요한 값을 조회 결과에서 구합니다."],
-  [
-    "게이트",
-    "근거 상태(찾음·일부만·없음·수집 범위 밖·모호함)를 판정합니다. 근거가 없으면 언어 모델을 부르지 않고 정해진 문장으로 답합니다.",
-  ],
-  [
-    "생성",
-    "근거가 있을 때만 언어 모델(Qwen3-4B)이 조회 결과를 문장으로 옮깁니다.",
-  ],
-  [
-    "검증",
-    "답변이 인용한 수치가 조회 값과 같은지 확인하고, 인용한 상품을 표에 ★로 표시합니다.",
-  ],
+/** 결과 화면 "어떻게 답했나"와 같은 5단계·같은 모양으로 보여준다(W7-5). */
+const PIPELINE: StepItem[] = [
+  {
+    key: "route",
+    label: "해석",
+    state: "done",
+    detail: "질문에서 상품군, 조건, 정렬 기준, 개수를 읽어 냅니다.",
+  },
+  {
+    key: "query",
+    label: "조회",
+    state: "done",
+    detail:
+      "PostgreSQL에서 SQL로, 구성종목·운용사 같은 관계는 그래프 확장(Apache AGE)에서 Cypher로 찾고, 개수·평균은 결과에서 계산합니다. 읽기 전용 계정으로 실행합니다.",
+  },
+  {
+    key: "gate",
+    label: "판정",
+    state: "stopped",
+    detail:
+      "근거 상태(찾음·일부만·없음·수집 범위 밖·장애·모호함)를 판정합니다.",
+    note: "근거가 없으면 여기서 멈추고 정해진 문장으로 답합니다",
+  },
+  {
+    key: "generate",
+    label: "생성",
+    state: "done",
+    detail:
+      "근거가 있을 때만 언어 모델(Qwen3-4B)이 조회 결과를 문장으로 옮깁니다.",
+  },
+  {
+    key: "verify",
+    label: "검증",
+    state: "done",
+    detail:
+      "답변이 인용한 수치가 조회 값과 같은지 확인하고, 인용한 상품을 표에 ★로 표시합니다.",
+  },
 ];
 
 /** 동작 방식·데이터 범위·한계·로그 정책·비공식 고지 (37 W5). */
@@ -35,19 +54,12 @@ export function AboutRoute({ meta }: { meta: RequestState<Meta> }) {
       <p className="about__lead">
         이 사이트는 질문을 받아 상품 정보 스냅샷을 조회하고, 무엇을 근거로
         답했는지 함께 보여 주는 검색 데모입니다. 결과 화면의 &ldquo;어떻게
-        답했나&rdquo;를 열면 아래 단계를 실제 쿼리와 함께 볼 수 있습니다.
+        답했나&rdquo;에서 질문마다 아래 단계가 어떻게 지나갔는지 볼 수 있습니다.
       </p>
 
       <section aria-labelledby="pipeline-heading" className="card">
         <h2 id="pipeline-heading">답을 만드는 순서</h2>
-        <ol className="pipeline">
-          {PIPELINE.map(([name, text]) => (
-            <li key={name}>
-              <strong>{name}</strong>
-              <span>{text}</span>
-            </li>
-          ))}
-        </ol>
+        <Stepper steps={PIPELINE} label="답을 만드는 단계" />
       </section>
 
       <section aria-labelledby="arch-heading" className="card">

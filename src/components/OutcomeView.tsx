@@ -1,11 +1,14 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { CiteFocusContext } from "../lib/citeFocus";
+import type { CiteTarget } from "../lib/explain";
 import type { ResultRow, SearchResponse } from "../lib/types";
+import { TABLE_QUERY, useMediaQuery } from "../lib/useMediaQuery";
 import { AnswerCard, BaseDates } from "./AnswerCard";
 import { Icon } from "./Icon";
-import { InterpretationChips } from "./Interpretation";
+import { InterpretationCard } from "./InterpretationCard";
+import { ProcessView } from "./ProcessView";
 import { QuestionChips } from "./QuestionChips";
 import { ResultGroupView } from "./ResultGroup";
-import { TracePanel } from "./TracePanel";
 
 type Tone = "info" | "warn" | "danger";
 
@@ -47,8 +50,12 @@ function StateBox({
   );
 }
 
+type View = "result" | "process";
+
 /**
- * outcome별 화면(37 4-3). 상태마다 무엇을 보여주고 무엇을 숨기는지가 여기 한곳에 있다.
+ * 결과 화면 전체(37 4-3 + W7). 구성은 위에서부터
+ *   ① 질문 해석(대상·조건·정렬) ② 어떻게 답했나(처리 단계·판정·시간) ③ outcome별 본문.
+ * 좁은 화면(<720px)에서는 ①을 늘 보이고, ②와 ③을 [결과 | 처리 과정] 전환으로 나눈다.
  * 생성 모델이 꺼진 경우(generated_by=fallback)는 outcome과 별개로 맨 위 배너를 띄운다.
  */
 export function OutcomeView({
@@ -62,7 +69,11 @@ export function OutcomeView({
   onOpen?: (domain: string, row: ResultRow) => void;
   onRetry: () => void;
 }) {
-  const { outcome, interpretation, results, trace } = response;
+  const wide = useMediaQuery(TABLE_QUERY);
+  const [view, setView] = useState<View>("result");
+  const [focus, setFocus] = useState<CiteTarget | null>(null);
+  const hasProcess = response.trace !== null;
+  const tabs = !wide && hasProcess;
 
   const banner = response.answer.generated_by === "fallback" && (
     <div className="banner banner--warn" role="status">
@@ -71,9 +82,74 @@ export function OutcomeView({
     </div>
   );
 
-  const traceView = trace && (
-    <TracePanel trace={trace} requestId={response.request_id} />
+  const body = (
+    <OutcomeBody
+      response={response}
+      selectedId={selectedId}
+      onOpen={onOpen}
+      onRetry={onRetry}
+    />
   );
+
+  return (
+    <CiteFocusContext.Provider value={{ focus, setFocus }}>
+      {banner}
+      <InterpretationCard response={response} />
+      {tabs ? (
+        <>
+          <div className="seg" role="tablist" aria-label="결과 보기 방식">
+            {(
+              [
+                ["result", "결과"],
+                ["process", "처리 과정"],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                id={`tab-${key}`}
+                aria-selected={view === key}
+                aria-controls={`panel-${key}`}
+                className="seg__tab"
+                onClick={() => setView(key)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div
+            role="tabpanel"
+            id={`panel-${view}`}
+            aria-labelledby={`tab-${view}`}
+            className="seg__panel"
+          >
+            {view === "result" ? body : <ProcessView response={response} />}
+          </div>
+        </>
+      ) : (
+        <>
+          <ProcessView response={response} />
+          {body}
+        </>
+      )}
+    </CiteFocusContext.Provider>
+  );
+}
+
+/** outcome별 본문. 상태마다 무엇을 보여주고 무엇을 숨기는지가 여기 한곳에 있다. */
+function OutcomeBody({
+  response,
+  selectedId,
+  onOpen,
+  onRetry,
+}: {
+  response: SearchResponse;
+  selectedId: string | null;
+  onOpen?: (domain: string, row: ResultRow) => void;
+  onRetry: () => void;
+}) {
+  const { outcome, interpretation, results } = response;
 
   const groups = results.map((group) => (
     <ResultGroupView
@@ -91,28 +167,22 @@ export function OutcomeView({
     case "caveat":
       return (
         <>
-          {banner}
           <AnswerCard response={response} />
-          <InterpretationChips interpretation={interpretation} />
           {groups}
-          {traceView}
         </>
       );
     case "no_result":
       return (
         <>
-          {banner}
           <StateBox
             tone="info"
             title="조건에 맞는 상품이 없습니다"
             response={response}
           />
-          <InterpretationChips interpretation={interpretation} />
           <QuestionChips
             title="조건을 바꿔 보세요"
             options={response.suggestions}
           />
-          {traceView}
         </>
       );
     case "not_collected":
@@ -127,20 +197,16 @@ export function OutcomeView({
             title="대신 물어볼 수 있는 질문"
             options={response.suggestions}
           />
-          {traceView}
         </>
       );
     case "unavailable":
       return (
-        <>
-          <StateBox tone="warn" title="일시적인 연결 문제" response={response}>
-            <button type="button" className="secondary" onClick={onRetry}>
-              <Icon name="refresh" size={16} />
-              다시 시도
-            </button>
-          </StateBox>
-          {traceView}
-        </>
+        <StateBox tone="warn" title="일시적인 연결 문제" response={response}>
+          <button type="button" className="secondary" onClick={onRetry}>
+            <Icon name="refresh" size={16} />
+            다시 시도
+          </button>
+        </StateBox>
       );
     case "ambiguous":
       return (
@@ -154,7 +220,6 @@ export function OutcomeView({
             title="구체화한 질문으로 다시 검색"
             options={response.clarify?.options ?? []}
           />
-          {traceView}
         </>
       );
     case "refused":
@@ -169,27 +234,23 @@ export function OutcomeView({
             title="대신 할 수 있는 질문"
             options={response.suggestions}
           />
-          {traceView}
         </>
       );
     case "error":
       return (
-        <>
-          <StateBox
-            tone="danger"
-            title="답변을 만들지 못했습니다"
-            response={response}
-          >
-            <p className="muted small">
-              요청 ID <span className="code">{response.request_id}</span>
-            </p>
-            <button type="button" className="secondary" onClick={onRetry}>
-              <Icon name="refresh" size={16} />
-              다시 시도
-            </button>
-          </StateBox>
-          {traceView}
-        </>
+        <StateBox
+          tone="danger"
+          title="답변을 만들지 못했습니다"
+          response={response}
+        >
+          <p className="muted small">
+            요청 ID <span className="code">{response.request_id}</span>
+          </p>
+          <button type="button" className="secondary" onClick={onRetry}>
+            <Icon name="refresh" size={16} />
+            다시 시도
+          </button>
+        </StateBox>
       );
   }
 }

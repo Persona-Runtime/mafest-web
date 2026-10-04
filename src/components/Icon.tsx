@@ -15,6 +15,9 @@ const PATHS = {
   alert: "M12 4l9 16H3zM12 10v4M12 17h.01",
   refresh: "M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6",
   star: "M12 4l2.4 5 5.6.6-4.2 3.8 1.2 5.6L12 16.2 7 19l1.2-5.6L4 9.6 9.6 9z",
+  check: "M5 12.5l4.5 4.5L19 7.5",
+  minus: "M6 12h12",
+  stop: "M8 8h8v8H8z",
 } as const;
 
 export type IconName = keyof typeof PATHS;

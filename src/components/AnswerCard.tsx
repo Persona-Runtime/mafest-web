@@ -1,3 +1,5 @@
+import { rowDomId, useCiteFocus } from "../lib/citeFocus";
+import { linkAnswer, type CiteTarget } from "../lib/explain";
 import { baseDateSummary, GENERATED_LABEL } from "../lib/format";
 import type { SearchResponse } from "../lib/types";
 import { Icon } from "./Icon";
@@ -42,7 +44,7 @@ export function AnswerCard({ response }: { response: SearchResponse }) {
           <BaseDates response={response} />
         </span>
       </header>
-      <p className="answer__text">{answer.text}</p>
+      <AnswerText response={response} />
       {answer.notices.length > 0 && (
         <ul
           className={`notices ${outcome === "caveat" ? "notices--warn" : ""}`}
@@ -57,5 +59,58 @@ export function AnswerCard({ response }: { response: SearchResponse }) {
         </ul>
       )}
     </section>
+  );
+}
+
+/**
+ * 답변 문장. 인용 상품의 이름과 숫자가 표의 값과 정확히 같으면 밑줄로 잇는다.
+ * 마우스·키보드 초점을 주면 표의 그 칸이 강조되고, 누르면 그 행으로 스크롤한다.
+ */
+function AnswerText({ response }: { response: SearchResponse }) {
+  const { focus, setFocus } = useCiteFocus();
+  const segments = linkAnswer(response.answer.text, response.results);
+  const linked = segments.some((s) => s.cite);
+  const same = (a: CiteTarget | null, b: CiteTarget) =>
+    a !== null &&
+    a.domain === b.domain &&
+    a.productId === b.productId &&
+    a.key === b.key;
+
+  return (
+    <>
+      <p className="answer__text">
+        {segments.map((segment, index) =>
+          segment.cite ? (
+            <button
+              key={index}
+              type="button"
+              className="cite-link"
+              data-active={same(focus, segment.cite) || undefined}
+              aria-describedby="cite-hint"
+              onMouseEnter={() => setFocus(segment.cite)}
+              onMouseLeave={() => setFocus(null)}
+              onFocus={() => setFocus(segment.cite)}
+              onBlur={() => setFocus(null)}
+              onClick={() => {
+                const row = document.getElementById(
+                  rowDomId(segment.cite.domain, segment.cite.productId),
+                );
+                row?.scrollIntoView({ behavior: "smooth", block: "center" });
+              }}
+            >
+              {segment.text}
+            </button>
+          ) : (
+            <span key={index}>{segment.text}</span>
+          ),
+        )}
+      </p>
+      {linked && (
+        <p id="cite-hint" className="answer__hint">
+          밑줄 친 값은 아래 표에서 그대로 가져온 값입니다. 누르면 그 상품으로
+          이동합니다.
+        </p>
+      )}
+    </>
   );
 }

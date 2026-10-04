@@ -70,6 +70,7 @@ export function SearchRoute({ api }: { api: SearchApi }) {
           )}
           {state.status === "done" && (
             <OutcomeView
+              key={state.data.request_id}
               response={state.data}
               selectedId={selected?.productId ?? null}
               onOpen={(domain, row) => openProduct(domain, row.product_id)}

@@ -103,25 +103,85 @@ describe("홈", () => {
 });
 
 describe("결과 — outcome 8종", () => {
-  test("answered: 답변·조건 칩·표·기준일·근거 패널", async () => {
+  test("answered: 질문 해석·처리 과정·답변·표 (넓은 화면)", async () => {
+    setViewport(1280);
     renderApp({
       api: respondWith(answered),
       path: searchPath(answered.question),
     });
-    expect(await screen.findByRole("heading", { name: "답변" })).toBeVisible();
-    expect(
-      screen.getByText(/SAMPLE 코스피200\(순자산 9\.1조 원/),
-    ).toBeVisible();
+    const answer = await screen.findByRole("region", { name: "답변" });
+    expect(answer).toHaveTextContent(/SAMPLE 코스피200\(순자산 9\.1조 원/);
     expect(screen.getByText("AI 생성 문장")).toBeVisible();
     expect(screen.getAllByText("2026-08-21").length).toBeGreaterThan(0);
-    expect(screen.getByText("정렬: 순자산 ↓")).toBeVisible();
     expect(
       screen.getByText("총 1,180건 중 5건", { exact: false }),
     ).toBeVisible();
-    expect(screen.getByText("어떻게 답했나")).toBeVisible();
-    expect(screen.getByText(/FROM sample_kr_etf/)).toBeInTheDocument();
     // 인용 표시는 보조기술에도 전달된다.
     expect(screen.getAllByText("답변에 인용,").length).toBe(3);
+
+    // ① 질문 해석: 구조와 다시 쓴 문장
+    const interp = screen.getByRole("region", { name: "질문 해석" });
+    expect(interp).toHaveTextContent("국내 ETF 중 상품을 순자산 큰 순으로 5개");
+    expect(within(interp).getByText("찾음")).toBeVisible();
+    expect(within(interp).getByText(/순자산 ↓/)).toBeVisible();
+
+    // ② 처리 과정: 5단계가 항상 보이고, 세부 기록(쿼리)은 접혀 있다
+    const process = screen.getByRole("region", { name: "어떻게 답했나" });
+    const steps = within(process).getByRole("list", { name: "처리 단계" });
+    expect(within(steps).getAllByRole("listitem")).toHaveLength(5);
+    expect(within(process).getByText("근거 충분 → 문장 생성")).toBeVisible();
+    expect(screen.getByText(/FROM sample_kr_etf/)).toBeInTheDocument();
+  });
+
+  test("답변의 숫자에 초점을 주면 표의 그 칸이 강조된다", async () => {
+    setViewport(1280);
+    const { user } = renderApp({
+      api: respondWith(answered),
+      path: searchPath(answered.question),
+    });
+    const cite = await screen.findByRole("button", { name: "9.1조 원" });
+    await user.hover(cite);
+    const cell = within(screen.getByRole("table")).getByRole("cell", {
+      name: "9.1조 원",
+    });
+    expect(cell).toHaveAttribute("data-cite");
+    await user.unhover(cite);
+    expect(cell).not.toHaveAttribute("data-cite");
+  });
+
+  test("좁은 화면: 질문 해석은 늘 보이고 결과·처리 과정은 전환", async () => {
+    const { user } = renderApp({
+      api: respondWith(answered),
+      path: searchPath(answered.question),
+    });
+    expect(
+      await screen.findByRole("region", { name: "질문 해석" }),
+    ).toBeVisible();
+    expect(screen.getByRole("tab", { name: "결과" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.queryByRole("region", { name: "어떻게 답했나" })).toBeNull();
+    await user.click(screen.getByRole("tab", { name: "처리 과정" }));
+    expect(screen.getByRole("region", { name: "어떻게 답했나" })).toBeVisible();
+    expect(screen.queryByRole("region", { name: "답변" })).toBeNull();
+  });
+
+  test("게이트에서 멈춘 경우: 생성 단계는 '모델 호출 안 함'", async () => {
+    setViewport(1280);
+    renderApp({
+      api: respondWith(notCollected),
+      path: searchPath(notCollected.question),
+    });
+    const process = await screen.findByRole("region", {
+      name: "어떻게 답했나",
+    });
+    expect(
+      within(process).getByText("수집하지 않은 항목 → 정해진 문장"),
+    ).toBeVisible();
+    expect(
+      within(process).getByText("모델 호출 안 함 · 정해진 문장"),
+    ).toBeVisible();
   });
 
   test("caveat: 주의 배지와 사유, 상품군별로 다른 기준일", async () => {
@@ -131,7 +191,7 @@ describe("결과 — outcome 8종", () => {
     expect(reasons).toHaveTextContent("퇴직연금 가능 여부가 수집되지 않아");
     expect(screen.getByText(/국내 ETF 기준일/)).toBeVisible();
     expect(screen.getByText(/국내 ETN 기준일/)).toBeVisible();
-    expect(screen.getByText("일부만")).toBeVisible();
+    expect(screen.getAllByText("일부만").length).toBeGreaterThan(0);
   });
 
   test("no_result: 안내 + 조건 칩 + 완화 질문", async () => {

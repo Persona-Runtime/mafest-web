@@ -8,6 +8,7 @@ import type {
   ResultRow,
   Sort,
 } from "../lib/types";
+import { rowDomId, useCiteFocus } from "../lib/citeFocus";
 import { TABLE_QUERY, useMediaQuery } from "../lib/useMediaQuery";
 import { Icon } from "./Icon";
 
@@ -32,6 +33,14 @@ export function ResultGroupView({
   onOpen?: (row: ResultRow) => void;
 }) {
   const asTable = useMediaQuery(TABLE_QUERY);
+  const { focus } = useCiteFocus();
+  // 답변에서 가리킨 행·칸. 다른 상품군 묶음이면 무시한다.
+  const focusRow = (row: ResultRow) =>
+    focus !== null &&
+    focus.domain === group.domain &&
+    focus.productId === row.product_id;
+  const focusCell = (row: ResultRow, column: Column) =>
+    focusRow(row) && focus?.key === column.key;
   const label = domain?.label ?? group.domain;
   const headingId = `results-${group.domain}`;
   const shown = group.rows.length;
@@ -100,7 +109,9 @@ export function ResultGroupView({
               {group.rows.map((row, index) => (
                 <tr
                   key={row.product_id}
+                  id={rowDomId(group.domain, row.product_id)}
                   data-selected={row.product_id === selectedId || undefined}
+                  data-cite={focusRow(row) || undefined}
                 >
                   <td className="num muted">{index + 1}</td>
                   <th scope="row" className="results-table__name">
@@ -113,7 +124,11 @@ export function ResultGroupView({
                     </Link>
                   </th>
                   {group.columns.map((column) => (
-                    <td key={column.key} className={cellClass(column)}>
+                    <td
+                      key={column.key}
+                      className={cellClass(column)}
+                      data-cite={focusCell(row, column) || undefined}
+                    >
                       <CellText row={row} column={column} />
                     </td>
                   ))}
@@ -125,12 +140,16 @@ export function ResultGroupView({
       ) : (
         <ul className="result-cards">
           {group.rows.map((row) => (
-            <li key={row.product_id}>
+            <li
+              key={row.product_id}
+              id={rowDomId(group.domain, row.product_id)}
+            >
               <Link
                 className="result-card"
                 to={productHref(group.domain, row.product_id)}
                 onClick={open(row)}
                 data-selected={row.product_id === selectedId || undefined}
+                data-cite={focusRow(row) || undefined}
               >
                 <span className="result-card__name">
                   <Cited cited={row.cited} />
@@ -140,7 +159,10 @@ export function ResultGroupView({
                   {cardColumns(group.columns).map((column) => (
                     <div key={column.key}>
                       <dt>{column.label}</dt>
-                      <dd className={isNumeric(column.kind) ? "num" : ""}>
+                      <dd
+                        className={isNumeric(column.kind) ? "num" : ""}
+                        data-cite={focusCell(row, column) || undefined}
+                      >
                         <CellText row={row} column={column} />
                       </dd>
                     </div>
