@@ -91,9 +91,10 @@ describe("홈", () => {
     expect(screen.getByLabelText("질문")).toBeEnabled();
   });
 
-  test("홈에도 비공식 고지(푸터)는 있다", () => {
+  test("하단 비공식 고지 띠는 없다(고지는 /about에만)", () => {
     renderApp();
-    expect(screen.getByText(/미래에셋증권과 무관/)).toBeInTheDocument();
+    expect(screen.queryByText(/미래에셋증권과 무관/)).toBeNull();
+    expect(screen.queryByRole("contentinfo")).toBeNull();
   });
 
   test("결과 화면에는 투자 고지가 붙는다", async () => {

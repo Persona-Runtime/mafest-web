@@ -318,20 +318,6 @@ button:disabled:hover {
   padding: var(--space-6) var(--space-4) var(--space-8);
 }
 
-.site-footer {
-  border-top: 1px solid var(--line);
-  background: var(--surface);
-  color: var(--muted);
-  font-size: var(--text-s);
-}
-
-.site-footer p {
-  max-width: var(--content-max);
-  margin: 0 auto;
-  padding: var(--space-4);
-  padding-bottom: calc(var(--space-4) + env(safe-area-inset-bottom));
-}
-
 @media (max-width: 719px) {
   .brand__name {
     font-size: var(--text-m);
@@ -1961,4 +1947,243 @@ button:disabled:hover {
 
 .not-found p {
   margin-top: var(--space-3);
+}
+
+/* ==========================================================================
+ * 테마 (2026-10-04): 주황 + 남색
+ * 의미 규칙: 주황 = 사용자가 누르는 것·강조, 남색 = 구조·"완료/찾음" 상태.
+ * 위 섹션의 기본 규칙을 여기서 덮는다(한곳에서 색 계열을 바꿀 수 있게).
+ * ======================================================================= */
+
+h1,
+h2,
+h3 {
+  color: var(--navy);
+}
+
+a {
+  color: var(--navy-2);
+}
+
+/* 헤더: 남색 띠 */
+.site-header {
+  background: var(--navy);
+  border-bottom: 0;
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 6%),
+    0 4px 16px rgb(11 58 111 / 18%);
+}
+
+.brand {
+  color: #fff;
+}
+
+.brand__mark {
+  background: var(--brand);
+  color: #fff;
+  border-radius: 9px;
+}
+
+.site-nav a {
+  color: rgb(255 255 255 / 72%);
+}
+
+.site-nav a:hover {
+  color: #fff;
+  background: rgb(255 255 255 / 10%);
+}
+
+.site-nav a.active {
+  color: #fff;
+  box-shadow: inset 0 -2px 0 var(--brand);
+  border-radius: 0;
+}
+
+.site-header .badge--warn {
+  background: rgb(255 255 255 / 14%);
+  color: #ffe7cc;
+}
+
+/* 홈: 남색 패널 위 검색 */
+.home__hero {
+  padding: var(--space-8) var(--space-6) var(--space-8);
+  border-radius: var(--radius-xl);
+  background:
+    radial-gradient(
+      120% 140% at 100% 0%,
+      rgb(236 106 12 / 22%),
+      transparent 55%
+    ),
+    linear-gradient(160deg, var(--navy) 0%, #0f4a8a 100%);
+  box-shadow: 0 18px 40px rgb(11 58 111 / 22%);
+  color: #fff;
+}
+
+.home__hero h1 {
+  color: #fff;
+}
+
+.home__lead {
+  color: rgb(255 255 255 / 80%);
+}
+
+.home__hero .searchbox--large {
+  border-color: transparent;
+  box-shadow: 0 10px 30px rgb(0 0 0 / 18%);
+}
+
+.home__examples h2 {
+  color: var(--muted);
+}
+
+.example-chip:hover {
+  border-color: var(--brand);
+  background: var(--accent-soft);
+}
+
+.example-chip__category {
+  color: var(--accent);
+}
+
+@media (max-width: 719px) {
+  .home__hero {
+    padding: var(--space-6) var(--space-4);
+    border-radius: var(--radius-l);
+  }
+}
+
+/* 검색창 포커스 */
+.searchbox:focus-within {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgb(236 106 12 / 18%);
+}
+
+/* 카드 */
+.card {
+  border-color: var(--line);
+  box-shadow: 0 1px 2px rgb(16 24 40 / 4%);
+}
+
+/* 상품군 칩·상태: 찾음 = 남색 */
+.chip--domain {
+  background: var(--navy-soft);
+  color: var(--navy);
+}
+
+.chip--strong {
+  border-color: var(--brand);
+  color: var(--accent-ink);
+}
+
+.tone--ok .domain-pill__dot {
+  background: var(--navy);
+}
+
+.tone--ok .domain-pill__status {
+  color: var(--navy);
+  border-color: var(--navy-soft);
+  background: var(--navy-soft);
+}
+
+.tone--info .domain-pill__dot {
+  background: var(--navy-2);
+}
+
+/* 해석 과정 표현 색: 대상 남색, 조건 주황, 정렬 청록 */
+.slot--domain {
+  --slot: var(--navy);
+  --slot-soft: var(--navy-soft);
+}
+.slot--condition {
+  --slot: var(--accent);
+  --slot-soft: var(--accent-soft);
+}
+.slot--sort {
+  --slot: #0e7490;
+  --slot-soft: #e0f2f6;
+}
+
+.interp__sentence {
+  background: var(--navy-soft);
+  color: var(--navy);
+}
+
+/* 처리 단계: 완료 = 남색, 생성 시간 = 주황 */
+.step__dot {
+  background: var(--navy);
+}
+
+.step--done .step__note {
+  background: var(--navy-soft);
+  color: var(--navy);
+}
+
+.step--warn .step__dot {
+  background: var(--warn);
+}
+
+.timing__seg--route {
+  background: #c7d4e6;
+}
+.timing__seg--query {
+  background: var(--navy-2);
+}
+.timing__seg--gate {
+  background: #8aa4c8;
+}
+.timing__seg--generate {
+  background: var(--brand);
+}
+.timing__seg--verify {
+  background: var(--navy);
+}
+
+/* 답변: 왼쪽 주황 띠, 인용 밑줄 주황 */
+.answer {
+  border-left-color: var(--brand);
+}
+
+.cite-link {
+  text-decoration-color: var(--brand);
+}
+
+/* 표: 정렬 축 주황 밑줄, 인용 별 주황 */
+.results-table thead th.emph {
+  color: var(--navy);
+  box-shadow: inset 0 -2px 0 var(--brand);
+}
+
+.results-table thead th {
+  background: #f1f4f9;
+}
+
+.cited,
+.legend .icon {
+  color: var(--brand);
+}
+
+.results-table__name a:hover {
+  color: var(--accent);
+}
+
+/* [결과 | 처리 과정] 전환 */
+.seg__tab[aria-selected="true"] {
+  color: var(--navy);
+  box-shadow:
+    inset 0 -2px 0 var(--brand),
+    0 1px 3px rgb(16 24 40 / 10%);
+}
+
+.spinner {
+  border-color: var(--accent-soft);
+  border-top-color: var(--brand);
+}
+
+.trace__query {
+  background: #0a2440;
+}
+
+/* 하단 띠는 두지 않는다(비공식 고지는 /about에만). */
+.shell__main {
+  padding-bottom: var(--space-8);
 }

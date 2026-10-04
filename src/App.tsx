@@ -1,7 +1,7 @@
 import { Link, NavLink, Route, Routes } from "react-router";
 import { useTitle } from "./lib/useTitle";
 import { api as defaultApi, IS_MOCK } from "./lib/client";
-import { SITE_NAME, UNOFFICIAL_NOTICE } from "./lib/site";
+import { SITE_NAME } from "./lib/site";
 import type { Meta, SearchApi } from "./lib/types";
 import { useRequest, type RequestState } from "./lib/useRequest";
 import { AboutRoute } from "./routes/AboutRoute";
@@ -34,9 +34,6 @@ export default function App({ api = defaultApi }: { api?: SearchApi }) {
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>
-      <footer className="site-footer">
-        <p>{UNOFFICIAL_NOTICE}</p>
-      </footer>
     </div>
   );
 }

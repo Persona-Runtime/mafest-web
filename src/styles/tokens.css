@@ -4,7 +4,7 @@
  * 색·간격·모서리·글자 크기를 여기서만 정한다. 화면마다 hex를 직접 적으면 같은 의미의
  * 색이 조금씩 어긋나고, 나중에 한 곳만 바꾸는 것이 불가능해진다.
  *
- * 강조색은 하나(--accent, 틸)만 쓴다. warn(앰버)·danger(로즈)는 상태 배지·알림처럼
+ * 행동·강조는 주황(--accent·--brand), 구조·완료 상태는 남색(--navy)이다. warn(황토)·danger(로즈)는 상태 배지·알림처럼
  * 의미가 있는 자리에만 쓰고, 색만으로 뜻을 전달하지 않도록 항상 텍스트 라벨을 함께 둔다.
  * *-ink는 같은 계열의 *-soft 배경 위에 올리는 글자색이다(대비 6.5:1 이상).
  */
@@ -13,20 +13,30 @@
     "IBM Plex Sans KR", system-ui, -apple-system, "Apple SD Gothic Neo",
     sans-serif;
 
-  --ground: #eef1f4;
+  --ground: #f3f5f8;
   --surface: #ffffff;
-  --surface-2: #f7f8fa;
-  --line: #dde3ea;
-  --line-strong: #b9c4cf;
-  --ink: #111827;
-  --muted: #5b6572;
+  --surface-2: #f6f8fb;
+  --line: #e1e6ee;
+  --line-strong: #b8c2d0;
+  --ink: #101828;
+  --muted: #5a6577;
 
-  --accent: #0e7c7b;
-  --accent-ink: #0a5c5b;
-  --accent-soft: #ddf2f0;
-  --warn: #b45309;
-  --warn-ink: #7c3a0a;
-  --warn-soft: #fdebd2;
+  /*
+   * 2026-10-04 테마: 주황(행동·강조) + 남색(구조·완료 상태).
+   * 주황은 흰 글자를 올리는 자리(버튼)에 --accent(대비 4.56)를, 막대·밑줄 같은 장식에만
+   * 밝은 --brand(3.17)를 쓴다. 남색은 헤더·완료 단계·대상 상품군에 쓴다.
+   * 특정 회사의 로고·이름은 쓰지 않는다(색 계열만 비슷하게).
+   */
+  --brand: #ec6a0c;
+  --accent: #c8500a;
+  --accent-ink: #9a3d06;
+  --accent-soft: #fdefe4;
+  --navy: #0b3a6f;
+  --navy-2: #1d5299;
+  --navy-soft: #e7eef7;
+  --warn: #a16207;
+  --warn-ink: #854d0e;
+  --warn-soft: #fef3c7;
   --danger: #be123c;
   --danger-ink: #9f1239;
   --danger-soft: #fde2e8;
@@ -50,18 +60,6 @@
   --text-l: 16px;
   --text-xl: 18px;
   --text-2xl: 26px;
-
-  /*
-   * 캐릭터별 아바타 색. 흰 글자를 올리므로 흰색 대비 4.5:1 이상인 값만 고른다
-   * (2026-10-01 계산: 틸 5.01, 인디고 6.29, 앰버 5.02, 로즈 6.29, 올리브 4.99,
-   * 바이올렛 5.70). 개수는 lib/avatar.ts의 ACCENT_COUNT와 맞춰야 한다.
-   */
-  --avatar-0: #0e7c7b;
-  --avatar-1: #4f46e5;
-  --avatar-2: #b45309;
-  --avatar-3: #be123c;
-  --avatar-4: #4d7c0f;
-  --avatar-5: #7c3aed;
 }
 
 /*
