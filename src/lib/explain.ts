@@ -2,7 +2,10 @@ import { isNumeric } from "./format";
 import type {
   EvidenceStatus,
   Interpretation,
+  InterpretationMapping,
   InterpretedDomain,
+  MappingMethod,
+  MappingSlot,
   Outcome,
   ResultGroup,
   SearchResponse,
@@ -320,4 +323,81 @@ export function linkAnswer(
   }
   if (cursor < text.length) segments.push({ text: text.slice(cursor) });
   return segments;
+}
+
+// ---------------------------------------------------------------------------
+// 해석 과정(r6 interpretation.mappings)
+
+export const SLOT_LABEL: Record<MappingSlot, string> = {
+  domain: "대상",
+  condition: "조건",
+  sort: "정렬",
+  limit: "개수",
+  aggregate: "집계",
+  entity: "이름",
+  time: "시점",
+  policy: "정책",
+};
+
+export const METHOD_LABEL: Record<MappingMethod, string> = {
+  synonym: "사전 일치",
+  pattern: "패턴",
+  rule: "규칙",
+  entity: "이름 사전",
+  default: "기본값",
+};
+
+export type QuestionSegment =
+  | { text: string; mapping?: undefined }
+  | { text: string; mapping: number };
+
+/** code point 위치 → JS 문자열(UTF-16) 위치. 한글·영문은 같고, 이모지 같은 문자만 다르다. */
+function toUtf16(question: string, codePoint: number): number {
+  return [...question].slice(0, codePoint).join("").length;
+}
+
+/**
+ * 질문을 해석 과정 표현 단위로 자른다. 각 조각은 그 표현을 해석한 mapping의 번호를 갖는다.
+ *
+ * 서버 위치가 질문 글자와 맞으면 그 위치를, 어긋나면(질문이 바뀌었거나 서버 계산 오류)
+ * 같은 글자를 질문에서 다시 찾는다. 그래도 없으면 밑줄 없이 둔다 — 목록에는 남는다.
+ * 겹치는 표현은 앞에 온 것만 칠한다.
+ */
+export function questionSegments(
+  question: string,
+  mappings: InterpretationMapping[],
+): QuestionSegment[] {
+  const spans: Array<{ start: number; end: number; index: number }> = [];
+  mappings.forEach((m, index) => {
+    if (m.text === null || m.text === "") return;
+    let start: number | null = null;
+    if (m.start !== null && m.end !== null) {
+      const s = toUtf16(question, m.start);
+      const e = toUtf16(question, m.end);
+      if (question.slice(s, e) === m.text) start = s;
+    }
+    if (start === null) {
+      const at = question.indexOf(m.text);
+      if (at >= 0) start = at;
+    }
+    if (start === null) return;
+    const end = start + m.text.length;
+    if (spans.some((t) => start! < t.end && end > t.start)) return;
+    spans.push({ start, end, index });
+  });
+  spans.sort((a, b) => a.start - b.start);
+
+  const out: QuestionSegment[] = [];
+  let cursor = 0;
+  for (const span of spans) {
+    if (span.start > cursor)
+      out.push({ text: question.slice(cursor, span.start) });
+    out.push({
+      text: question.slice(span.start, span.end),
+      mapping: span.index,
+    });
+    cursor = span.end;
+  }
+  if (cursor < question.length) out.push({ text: question.slice(cursor) });
+  return out;
 }

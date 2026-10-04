@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: 금융상품 질의 검색 공개 API
-  version: 1.0.0
+  version: 1.1.0
   description: |
     mafest-web이 쓰는 공개 API(`/v1`). 사람이 읽는 설명은 mafest
     `docs/plans/39_공개API_명세.md`, 이 파일은 기계가 검사하는 정본이다.
@@ -301,11 +301,55 @@ components:
         label: { type: string }
         dir: { type: string, enum: [asc, desc] }
 
-    Interpretation:
+    MappingSlot:
+      description: 질문 표현이 무엇으로 해석됐는가
+      type: string
+      enum: [domain, condition, sort, limit, aggregate, entity, time, policy]
+    MappingMethod:
+      description: |
+        어떤 장치로 해석했는가. synonym=온톨로지 동의어·범주 값 사전, pattern=숫자·단위·등급
+        모양, rule=라우팅 규칙(상장시장 좁히기 등), entity=엔티티 사전 일치, default=질문에
+        없어 기본값을 씀
+      type: string
+      enum: [synonym, pattern, rule, entity, default]
+    InterpretationMapping:
+      description: |
+        [r6] 해석 과정 한 줄. "질문의 이 부분 → 이렇게 읽음 → 이 장치로".
+        start·end는 정규화한 question의 문자(code point) 위치, [start, end). 질문에 없는
+        해석(기본값·추론)은 text·start·end가 null.
       type: object
-      required: [domains, conditions, sort, limit]
+      required: [slot, text, start, end, result, method, note]
       additionalProperties: false
       properties:
+        slot: { $ref: "#/components/schemas/MappingSlot" }
+        text:
+          {
+            type: [string, "null"],
+            description: "question[start:end]와 같은 문자열",
+          }
+        start: { type: [integer, "null"], minimum: 0 }
+        end: { type: [integer, "null"], minimum: 0 }
+        result:
+          type: string
+          minLength: 1
+          description: 해석 결과 표시 문구. 예 "총보수 < 0.2%", "국내 ETF·국내 ETN", "상위 10"
+        method: { $ref: "#/components/schemas/MappingMethod" }
+        note:
+          type: [string, "null"]
+          description: 왜 이렇게 읽었는지 한 줄. 예 "상장시장 낱말이 없으면 국내 상장으로 좁힘"
+
+    Interpretation:
+      type: object
+      required: [domains, conditions, sort, limit, mappings]
+      additionalProperties: false
+      properties:
+        mappings:
+          type: array
+          maxItems: 20
+          description: |
+            [r6] 해석 과정. 질문 순서(start 오름차순), 질문에 없는 해석은 맨 뒤.
+            서버가 아직 기록하지 못하면 []. 웹은 []이면 해석 결과만 보여준다.
+          items: { $ref: "#/components/schemas/InterpretationMapping" }
         domains:
           type: array
           items: { $ref: "#/components/schemas/InterpretedDomain" }

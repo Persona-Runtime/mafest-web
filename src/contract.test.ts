@@ -135,6 +135,19 @@ type Mutation = [string, SearchResponse, (r: Record<string, unknown>) => void];
 type Cells = { rows: { values: Record<string, Record<string, unknown>> }[] }[];
 
 const MUTATIONS: Mutation[] = [
+  [
+    "해석 과정(mappings) 누락",
+    answered,
+    (r) => delete (r.interpretation as Record<string, unknown>).mappings,
+  ],
+  [
+    "해석 과정 slot이 목록 밖",
+    answered,
+    (r) => {
+      (r.interpretation as { mappings: { slot: string }[] }).mappings[0].slot =
+        "guess";
+    },
+  ],
   ["request_id 누락", answered, (r) => delete r.request_id],
   [
     "answer.generated_by 누락",

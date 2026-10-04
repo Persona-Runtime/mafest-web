@@ -1,6 +1,6 @@
 /**
  * 공개 API 계약. 정본은 `contract/public-api-v1.openapi.yaml`, 값 채우는 규칙은
- * mafest `docs/plans/39_공개API_명세.md`다.
+ * 작업 공간 `docs/repos/mafest/plans/39_공개API_명세.md`다.
  *
  * yaml이 바뀌면 이 파일, validate.ts, 픽스처를 함께 고친다. contract.test.ts가 픽스처를
  * yaml로, 같은 깨진 응답을 yaml과 validate.ts 둘 다로 검사하므로 어긋나면 실패한다.
@@ -157,7 +157,45 @@ export interface Sort {
   dir: "asc" | "desc";
 }
 
+export const MAPPING_SLOTS = [
+  "domain",
+  "condition",
+  "sort",
+  "limit",
+  "aggregate",
+  "entity",
+  "time",
+  "policy",
+] as const;
+export type MappingSlot = (typeof MAPPING_SLOTS)[number];
+
+export const MAPPING_METHODS = [
+  "synonym",
+  "pattern",
+  "rule",
+  "entity",
+  "default",
+] as const;
+export type MappingMethod = (typeof MAPPING_METHODS)[number];
+
+/**
+ * [r6] 해석 과정 한 줄: "질문의 이 부분 → 이렇게 읽음 → 이 장치로".
+ * start·end는 정규화한 question의 문자(code point) 위치 [start, end). 질문에 없는
+ * 해석(기본값·추론)은 text·start·end가 null.
+ */
+export interface InterpretationMapping {
+  slot: MappingSlot;
+  text: string | null;
+  start: number | null;
+  end: number | null;
+  result: string;
+  method: MappingMethod;
+  note: string | null;
+}
+
 export interface Interpretation {
+  /** [r6] 해석 과정. 서버가 아직 기록하지 못하면 []. */
+  mappings: InterpretationMapping[];
   domains: InterpretedDomain[];
   conditions: Condition[];
   sort: Sort | null;

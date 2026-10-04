@@ -6,6 +6,8 @@ import {
   ERROR_CODES,
   EVIDENCE_STATUSES,
   GENERATED_BY,
+  MAPPING_METHODS,
+  MAPPING_SLOTS,
   OUTCOMES,
   RELATION_TYPES,
   TRACE_STAGES,
@@ -171,7 +173,37 @@ function validateInterpretation(v: unknown): void {
     "conditions",
     "sort",
     "limit",
+    "mappings",
   ]);
+  // [r6] 해석 과정. 위치(start·end)는 둘 다 있거나 둘 다 null이고, 있으면 start ≤ end.
+  // 글자가 question과 어긋나는지는 화면이 다시 찾아 맞춘다(틀린 위치로 응답 전체를 버리지 않는다).
+  arr(it.mappings, "interpretation.mappings", 20).forEach((m, i) => {
+    const p = `interpretation.mappings[${i}]`;
+    const mapping = record(m, p, [
+      "slot",
+      "text",
+      "start",
+      "end",
+      "result",
+      "method",
+      "note",
+    ]);
+    oneOf(mapping.slot, MAPPING_SLOTS, `${p}.slot`);
+    strOrNull(mapping.text, `${p}.text`);
+    const start =
+      mapping.start === null
+        ? null
+        : int(mapping.start, `${p}.start`, 0, Number.MAX_SAFE_INTEGER);
+    const end =
+      mapping.end === null
+        ? null
+        : int(mapping.end, `${p}.end`, 0, Number.MAX_SAFE_INTEGER);
+    if ((start === null) !== (end === null) || (start !== null && start > end!))
+      throw new ContractError(`${p}.end`);
+    str(mapping.result, `${p}.result`, 1);
+    oneOf(mapping.method, MAPPING_METHODS, `${p}.method`);
+    strOrNull(mapping.note, `${p}.note`);
+  });
   arr(it.domains, "interpretation.domains").forEach((d, i) => {
     const p = `interpretation.domains[${i}]`;
     const domain = record(d, p, ["domain", "label", "status", "base_date"]);

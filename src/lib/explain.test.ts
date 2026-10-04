@@ -4,6 +4,7 @@ import {
   domainViews,
   interpretationSentence,
   linkAnswer,
+  questionSegments,
   timingSegments,
   type StepKey,
   type StepState,
@@ -168,5 +169,36 @@ describe("linkAnswer", () => {
     expect(linkAnswer("순자산 1.9조 원", answered.results)).toEqual([
       { text: "순자산 1.9조 원" },
     ]);
+  });
+});
+
+describe("questionSegments — 해석 과정 밑줄", () => {
+  test("서버 위치대로 질문을 표현 단위로 자르고, 이어 붙이면 원문", () => {
+    const segments = questionSegments(
+      caveat.question,
+      caveat.interpretation.mappings,
+    );
+    expect(segments.map((s) => s.text).join("")).toBe(caveat.question);
+    expect(
+      segments.filter((s) => s.mapping !== undefined).map((s) => s.text),
+    ).toEqual(["퇴직연금 가능", "총보수 0.2% 미만", "ETF·ETN", "순자산 큰 순"]);
+  });
+
+  test("질문이 바뀌어 위치가 어긋나면 같은 글자를 다시 찾는다", () => {
+    const segments = questionSegments(
+      "요즘 순자산 큰 국내 ETF 5개 보여줘",
+      answered.interpretation.mappings,
+    );
+    expect(
+      segments.filter((s) => s.mapping !== undefined).map((s) => s.text),
+    ).toEqual(["순자산 큰", "국내 ETF", "5개"]);
+  });
+
+  test("못 찾는 표현과 질문에 없는 해석(기본값)은 밑줄 없이 둔다", () => {
+    const segments = questionSegments(
+      "채권 보여줘",
+      caveat.interpretation.mappings,
+    );
+    expect(segments).toEqual([{ text: "채권 보여줘" }]);
   });
 });

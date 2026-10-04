@@ -15,7 +15,7 @@
 | `/products/:domain/:id`  | 상품 상세(좁은 화면 또는 직접 링크). 값별 출처·기준일, 관계 → 관련 검색 |
 | `/about`                 | 동작 방식, 데이터 범위, 한계, 기록 정책, 비공식 고지                    |
 
-- 결과 화면은 ① 질문 해석(대상 상품군·상태, 조건, 정렬·개수, 해석 문장) ② 어떻게 답했나(해석→조회→판정→생성→검증 5단계, 판정 설명, 단계별 시간 막대, 접힌 세부 기록) ③ 답변·표 순서다. 답변 속 인용 상품명·숫자는 표의 그 행·칸과 이어진다. 좁은 화면은 ①을 늘 보이고 ②·③을 [결과 | 처리 과정]으로 전환한다. 규칙은 `src/lib/explain.ts` 한곳에 있다.
+- 결과 화면은 ① 질문 해석(질문 표현에 번호 밑줄 → "표현 → 대상·조건·정렬·개수 → 사전 일치·패턴·규칙·기본값" 목록, 해석 결과 문장, 상품군 상태) ② 어떻게 답했나(해석→조회→판정→생성→검증 5단계, 판정 설명, 단계별 시간 막대, 접힌 세부 기록) ③ 답변·표 순서다. 답변 속 인용 상품명·숫자는 표의 그 행·칸과 이어진다. 좁은 화면은 ①을 늘 보이고 ②·③을 [결과 | 처리 과정]으로 전환한다. 규칙은 `src/lib/explain.ts` 한곳에 있다.
 - 상태는 URL에만 있다. 새로고침·뒤로가기·링크 공유가 그대로 된다.
 - outcome 8종(`answered` `caveat` `no_result` `not_collected` `unavailable` `ambiguous` `refused` `error`)과 `generated_by=fallback`(모델 꺼짐 배너), HTTP 429(Retry-After 카운트다운)·504·5xx·연결 실패를 각각 다른 화면으로 그린다.
 - 숫자는 오른쪽 정렬·고정폭. 수익률은 색 없이 부호로만.
@@ -79,7 +79,7 @@ npm run container:verify   # Docker 필요. linux/amd64 이미지를 빌드해 �
 
 ## API 계약
 
-- 기계 정본: `contract/public-api-v1.openapi.yaml`(OpenAPI 3.1). 값 채우는 규칙은 mafest `docs/plans/39_공개API_명세.md`.
+- 기계 정본: `contract/public-api-v1.openapi.yaml`(OpenAPI 3.1). 값 채우는 규칙은 작업 공간 `docs/repos/mafest/plans/39_공개API_명세.md`.
 - 웹 쪽 구현: `src/lib/types.ts`(타입)와 `src/lib/validate.ts`(받는 즉시 검사). 응답이 계약과 다르면 성공처럼 그리지 않고 "응답 형식 오류"로 보인다.
 - `src/contract.test.ts`가 합성 픽스처 전부를 yaml 스키마로 검사한다. yaml을 고치면 types·validate·픽스처를 함께 고친다.
 - mafest(P7)는 이 yaml을 `tests/contract/`로 복사해 실제 응답을 같은 스키마로 검사한다.

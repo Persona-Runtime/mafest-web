@@ -988,7 +988,7 @@ button:disabled:hover {
 .interp {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: var(--space-4);
 }
 
 .interp .interp__title {
@@ -997,37 +997,190 @@ button:disabled:hover {
   letter-spacing: 0.02em;
 }
 
-/* 해석을 다시 쓴 문장. 사용자가 "내 말을 이렇게 알아들었구나"를 바로 확인하는 자리다. */
-.interp__sentence {
-  font-size: var(--text-l);
+/* 표현 종류별 색. 색만으로 구분하지 않도록 목록에 종류 이름(대상·조건…)을 함께 쓴다. */
+.slot--domain {
+  --slot: #4f46e5;
+  --slot-soft: #e8e7fc;
+}
+.slot--condition {
+  --slot: var(--accent);
+  --slot-soft: var(--accent-soft);
+}
+.slot--sort {
+  --slot: var(--warn);
+  --slot-soft: var(--warn-soft);
+}
+.slot--limit,
+.slot--aggregate {
+  --slot: #475569;
+  --slot-soft: #e2e8f0;
+}
+.slot--entity {
+  --slot: #7c3aed;
+  --slot-soft: #efe7fd;
+}
+.slot--time {
+  --slot: var(--danger);
+  --slot-soft: var(--danger-soft);
+}
+.slot--policy {
+  --slot: var(--ink);
+  --slot-soft: #e5e7eb;
+}
+
+/* 질문 원문 + 해석한 표현 밑줄·번호 */
+.interp__question {
+  font-size: var(--text-xl);
+  line-height: 2.2;
+  word-break: keep-all;
+}
+
+.qmark {
+  position: relative;
+  padding: 2px 2px 1px;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  box-shadow: inset 0 -3px 0 var(--slot);
+  transition: background 120ms ease;
+}
+
+.qmark[data-active] {
+  background: var(--slot-soft);
+}
+
+.qmark__num {
+  display: inline-grid;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  margin-right: 3px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--slot);
+  color: #fff;
+  font-size: 10px;
   font-weight: 600;
-  line-height: 1.5;
+  line-height: 1;
+  vertical-align: 3px;
 }
 
-.interp__grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 0.8fr);
-  gap: var(--space-3);
-  margin: 0;
-}
-
-.interp__cell {
+/* 해석 과정 목록: 번호 | "원문" | → 종류 결과 | 방법·이유 */
+.mapping-list {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-3);
-  border-radius: var(--radius-m);
-  background: var(--surface-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--line);
 }
 
-.interp__cell dt {
+.mapping {
+  display: grid;
+  grid-template-columns: 22px minmax(140px, 220px) minmax(0, 1fr) minmax(
+      0,
+      1.3fr
+    );
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-2);
+  border-bottom: 1px solid var(--line);
+  font-size: var(--text-s);
+  transition: background 120ms ease;
+}
+
+.mapping[data-active] {
+  background: var(--slot-soft);
+}
+
+.mapping__num {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--slot);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.mapping__src q {
+  font-weight: 600;
+  quotes: "“" "”";
+}
+
+.mapping__to {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+}
+
+.mapping__arrow {
   color: var(--muted);
+}
+
+.mapping__slot {
+  padding: 0 var(--space-2);
+  border-radius: 999px;
+  background: var(--slot-soft);
+  color: var(--slot);
   font-size: var(--text-xs);
   font-weight: 600;
 }
 
-.interp__cell dd {
-  margin: 0;
+.slot--policy .mapping__slot {
+  color: var(--ink);
+}
+
+.mapping__result {
+  font-weight: 600;
+}
+
+.mapping__how {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+  color: var(--muted);
+}
+
+.method {
+  padding: 0 var(--space-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-s);
+  color: var(--ink);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.method--default {
+  border-style: dashed;
+  color: var(--muted);
+}
+
+.mapping__note {
+  font-size: var(--text-xs);
+}
+
+/* 해석 결과 한 문장 */
+.interp__sentence {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-m);
+  background: var(--surface-2);
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.interp__sentence-label {
+  color: var(--muted);
+  font-size: var(--text-xs);
 }
 
 .chip--strong {
@@ -1036,14 +1189,10 @@ button:disabled:hover {
   font-weight: 600;
 }
 
-.chip--plain {
-  color: var(--muted);
-}
-
 .domain-list {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -1112,44 +1261,40 @@ button:disabled:hover {
 }
 
 @media (max-width: 1099px) {
-  .interp__grid {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  .mapping {
+    grid-template-columns: 22px minmax(0, 1fr) minmax(0, 1.3fr);
   }
 
-  .interp__cell:first-child {
-    grid-column: 1 / -1;
+  .mapping__how {
+    grid-column: 2 / -1;
   }
 }
 
+/* 좁은 화면: 목록 한 줄을 "번호 원문 / → 결과 / 방법·이유" 세 줄로 쌓는다. */
 @media (max-width: 719px) {
   .interp {
     padding: var(--space-4);
   }
 
-  .interp__sentence {
-    font-size: var(--text-m);
+  .interp__question {
+    font-size: var(--text-l);
+    line-height: 2.1;
   }
 
-  /* 좁은 화면: 상자 3개를 쌓지 않고 "이름 | 값" 줄 3개로 눌러 담는다. */
-  .interp__grid {
-    grid-template-columns: 1fr;
-    gap: 0;
-    border-top: 1px solid var(--line);
-  }
-
-  .interp__cell {
-    display: grid;
-    grid-template-columns: 64px minmax(0, 1fr);
-    align-items: start;
-    gap: var(--space-2);
+  .mapping {
+    grid-template-columns: 22px minmax(0, 1fr);
+    gap: 2px var(--space-2);
     padding: var(--space-2) 0;
-    border-radius: 0;
-    background: none;
-    border-bottom: 1px solid var(--line);
   }
 
-  .interp__cell dt {
-    padding-top: 5px;
+  .mapping__to,
+  .mapping__how {
+    grid-column: 2;
+  }
+
+  .interp__sentence {
+    padding: var(--space-3);
+    font-size: var(--text-s);
   }
 }
 

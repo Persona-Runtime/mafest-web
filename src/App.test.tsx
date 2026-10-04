@@ -125,6 +125,15 @@ describe("결과 — outcome 8종", () => {
     expect(within(interp).getByText("찾음")).toBeVisible();
     expect(within(interp).getByText(/순자산 ↓/)).toBeVisible();
 
+    // 해석 과정: 질문 표현 → 무엇으로 → 어떤 장치로
+    const how = within(interp).getByRole("list", { name: "해석 과정" });
+    const rows = within(how).getAllByRole("listitem");
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toHaveTextContent("순자산 큰");
+    expect(rows[0]).toHaveTextContent("정렬");
+    expect(rows[0]).toHaveTextContent("규칙");
+    expect(rows[2]).toHaveTextContent("상위 5");
+
     // ② 처리 과정: 5단계가 항상 보이고, 세부 기록(쿼리)은 접혀 있다
     const process = screen.getByRole("region", { name: "어떻게 답했나" });
     const steps = within(process).getByRole("list", { name: "처리 단계" });
@@ -147,6 +156,25 @@ describe("결과 — outcome 8종", () => {
     expect(cell).toHaveAttribute("data-cite");
     await user.unhover(cite);
     expect(cell).not.toHaveAttribute("data-cite");
+  });
+
+  test("질문에 없는 해석(기본값)도 목록에 '질문에 없음'으로 보인다", async () => {
+    renderApp({ api: respondWith(caveat), path: searchPath(caveat.question) });
+    const how = await screen.findByRole("list", { name: "해석 과정" });
+    const last = within(how).getAllByRole("listitem").at(-1)!;
+    expect(last).toHaveTextContent("질문에 없음");
+    expect(last).toHaveTextContent("상위 10");
+    expect(last).toHaveTextContent("기본값");
+  });
+
+  test("정책 거절도 어떤 표현 때문인지 보인다", async () => {
+    renderApp({
+      api: respondWith(refused),
+      path: searchPath(refused.question),
+    });
+    const how = await screen.findByRole("list", { name: "해석 과정" });
+    expect(how).toHaveTextContent("추천해줘");
+    expect(how).toHaveTextContent("상품 추천");
   });
 
   test("좁은 화면: 질문 해석은 늘 보이고 결과·처리 과정은 전환", async () => {

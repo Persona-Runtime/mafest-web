@@ -2,6 +2,7 @@ import type {
   CellValue,
   Column,
   DomainKey,
+  InterpretationMapping,
   InterpretedDomain,
   Meta,
   ProductDetail,
@@ -260,6 +261,41 @@ function trace(
   };
 }
 
+type MappingSpec = [
+  InterpretationMapping["slot"],
+  string | null,
+  string,
+  InterpretationMapping["method"],
+  string | null,
+];
+
+/**
+ * 해석 과정 픽스처. 위치는 손으로 세지 않고 질문에서 찾아 문자(code point) 단위로 계산한다.
+ * 질문에 없는 표현을 적으면 바로 실패한다(픽스처가 서버 계약을 어기지 않게).
+ */
+function mappings(
+  question: string,
+  specs: MappingSpec[],
+): InterpretationMapping[] {
+  return specs.map(([slot, text, result, method, note]) => {
+    if (text === null)
+      return { slot, text, start: null, end: null, result, method, note };
+    const at = question.indexOf(text);
+    if (at < 0)
+      throw new Error(`픽스처 오류: "${text}"가 "${question}"에 없다`);
+    const start = [...question.slice(0, at)].length;
+    return {
+      slot,
+      text,
+      start,
+      end: start + [...text].length,
+      result,
+      method,
+      note,
+    };
+  });
+}
+
 const RENDER = {
   stage: "render",
   label: "렌더",
@@ -286,6 +322,12 @@ export const answered: SearchResponse = {
     ],
   },
   interpretation: {
+    mappings: mappings("순자산 큰 국내 ETF 5개", [
+      ["sort", "순자산 큰", "순자산 ↓", "rule", "'큰'·'많은'은 내림차순"],
+      ["domain", "국내 ETF", "국내 ETF", "synonym", "상품군 사전 일치"],
+      ["limit", "5개", "상위 5", "pattern", "숫자 + '개'"],
+    ]),
+
     domains: [domain("kr_etf", "FOUND", ETF_DATE)],
     conditions: [],
     sort: { axis: "aum", label: "순자산", dir: "desc" },
@@ -358,6 +400,35 @@ export const caveat: SearchResponse = {
     ],
   },
   interpretation: {
+    mappings: mappings(
+      "퇴직연금 가능하고 총보수 0.2% 미만인 ETF·ETN 순자산 큰 순",
+      [
+        [
+          "condition",
+          "퇴직연금 가능",
+          "퇴직연금 = 가능",
+          "synonym",
+          "범주 값 사전('퇴직연금' 축)",
+        ],
+        [
+          "condition",
+          "총보수 0.2% 미만",
+          "총보수 < 0.2%",
+          "pattern",
+          "축 이름 + 숫자·단위 + '미만'",
+        ],
+        [
+          "domain",
+          "ETF·ETN",
+          "국내 ETF·국내 ETN",
+          "rule",
+          "상장시장 낱말이 없으면 국내 상장으로 좁힘",
+        ],
+        ["sort", "순자산 큰 순", "순자산 ↓", "rule", "'큰 순'은 내림차순"],
+        ["limit", null, "상위 10", "default", "개수 말이 없으면 10개"],
+      ],
+    ),
+
     domains: [
       domain("kr_etf", "FOUND", ETF_DATE),
       domain("kr_etn", "PARTIAL", BOND_DATE),
@@ -480,6 +551,25 @@ export const noResult: SearchResponse = {
     notices: [],
   },
   interpretation: {
+    mappings: mappings("총보수 0.01% 미만이고 1년 수익률 50% 이상인 국내 ETF", [
+      [
+        "condition",
+        "총보수 0.01% 미만",
+        "총보수 < 0.01%",
+        "pattern",
+        "축 이름 + 숫자·단위 + '미만'",
+      ],
+      [
+        "condition",
+        "1년 수익률 50% 이상",
+        "1년 수익률 ≥ 50%",
+        "pattern",
+        "기간 + 축 이름 + 숫자 + '이상'",
+      ],
+      ["domain", "국내 ETF", "국내 ETF", "synonym", "상품군 사전 일치"],
+      ["limit", null, "상위 10", "default", "개수 말이 없으면 10개"],
+    ]),
+
     domains: [domain("kr_etf", "EMPTY", ETF_DATE)],
     conditions: [
       {
@@ -554,6 +644,25 @@ export const notCollected: SearchResponse = {
     ],
   },
   interpretation: {
+    mappings: mappings("어제 거래량 많은 국내 ETF", [
+      [
+        "time",
+        "어제",
+        "일별 시세",
+        "rule",
+        "날짜 낱말 → 시계열 요구(수집하지 않음)",
+      ],
+      [
+        "sort",
+        "거래량 많은",
+        "거래량 ↓",
+        "synonym",
+        "축 사전에는 있으나 값은 수집하지 않음",
+      ],
+      ["domain", "국내 ETF", "국내 ETF", "synonym", "상품군 사전 일치"],
+      ["limit", null, "상위 10", "default", "개수 말이 없으면 10개"],
+    ]),
+
     domains: [domain("kr_etf", "AXIS_ABSENT", ETF_DATE)],
     conditions: [],
     sort: { axis: "volume", label: "거래량", dir: "desc" },
@@ -599,6 +708,25 @@ export const unavailable: SearchResponse = {
     ],
   },
   interpretation: {
+    mappings: mappings("SAMPLE전자를 편입한 국내 ETF", [
+      [
+        "entity",
+        "SAMPLE전자",
+        "회사 SAMPLE전자",
+        "entity",
+        "회사 이름 사전 일치",
+      ],
+      [
+        "condition",
+        "편입한",
+        "구성종목에 포함",
+        "rule",
+        "'편입·담은' → 구성종목 관계",
+      ],
+      ["domain", "국내 ETF", "국내 ETF", "synonym", "상품군 사전 일치"],
+      ["limit", null, "상위 10", "default", "개수 말이 없으면 10개"],
+    ]),
+
     domains: [domain("kr_etf", "AXIS_ABSENT", ETF_DATE)],
     conditions: [
       {
@@ -655,6 +783,17 @@ export const ambiguous: SearchResponse = {
     notices: [],
   },
   interpretation: {
+    mappings: mappings("신용등급 좋은 채권", [
+      [
+        "condition",
+        "신용등급 좋은",
+        "신용등급 기준 없음",
+        "rule",
+        "'좋은'은 등급 경계가 아니라 선택지를 물음",
+      ],
+      ["domain", "채권", "채권", "synonym", "상품군 사전 일치"],
+    ]),
+
     domains: [domain("bond", "AMBIGUOUS", BOND_DATE)],
     conditions: [],
     sort: null,
@@ -711,7 +850,23 @@ export const refused: SearchResponse = {
       },
     ],
   },
-  interpretation: { domains: [], conditions: [], sort: null, limit: null },
+  interpretation: {
+    mappings: mappings("앞으로 오를 ETF 추천해줘", [
+      ["policy", "앞으로 오를", "가격 전망", "rule", "미래 가격을 묻는 표현"],
+      [
+        "domain",
+        "ETF",
+        "ETF",
+        "synonym",
+        "상품군 사전 일치(조회 전 정책으로 멈춤)",
+      ],
+      ["policy", "추천해줘", "상품 추천", "rule", "추천 요청은 답하지 않음"],
+    ]),
+    domains: [],
+    conditions: [],
+    sort: null,
+    limit: null,
+  },
   results: [],
   clarify: null,
   suggestions: [
@@ -742,7 +897,13 @@ export const errorOutcome: SearchResponse = {
     generated_by: "template",
     notices: [],
   },
-  interpretation: { domains: [], conditions: [], sort: null, limit: null },
+  interpretation: {
+    mappings: mappings("오류 재현", []),
+    domains: [],
+    conditions: [],
+    sort: null,
+    limit: null,
+  },
   results: [],
   clarify: null,
   suggestions: [],
@@ -788,6 +949,11 @@ export const count: SearchResponse = {
     notices: [],
   },
   interpretation: {
+    mappings: mappings("국내 상장 ETN은 몇 개야?", [
+      ["domain", "국내 상장 ETN", "국내 ETN", "rule", "'국내 상장' → 국내 ETN"],
+      ["aggregate", "몇 개", "개수 세기", "pattern", "'몇 개' → 개수 집계"],
+    ]),
+
     domains: [domain("kr_etn", "FOUND", BOND_DATE)],
     conditions: [],
     sort: null,
@@ -842,6 +1008,32 @@ export const bond: SearchResponse = {
     notices: [],
   },
   interpretation: {
+    mappings: mappings("신용등급 AA0 이상, 후순위 아닌 채권 표면금리 높은 순", [
+      [
+        "condition",
+        "신용등급 AA0 이상",
+        "신용등급 ≥ AA0",
+        "pattern",
+        "등급 모양(AA0) + '이상'",
+      ],
+      [
+        "condition",
+        "후순위 아닌",
+        "후순위 = 아님",
+        "rule",
+        "범주 값 + 부정('아닌')",
+      ],
+      ["domain", "채권", "채권", "synonym", "상품군 사전 일치"],
+      [
+        "sort",
+        "표면금리 높은 순",
+        "표면금리 ↓",
+        "rule",
+        "'높은 순'은 내림차순",
+      ],
+      ["limit", null, "상위 10", "default", "개수 말이 없으면 10개"],
+    ]),
+
     domains: [domain("bond", "FOUND", BOND_DATE)],
     conditions: [
       {
@@ -942,6 +1134,25 @@ export const caveatOutage: SearchResponse = {
     ],
   },
   interpretation: {
+    mappings: mappings("총보수 0.2% 미만 ETF·ETN 순자산 큰 순", [
+      [
+        "condition",
+        "총보수 0.2% 미만",
+        "총보수 < 0.2%",
+        "pattern",
+        "축 이름 + 숫자·단위 + '미만'",
+      ],
+      [
+        "domain",
+        "ETF·ETN",
+        "국내 ETF·국내 ETN",
+        "rule",
+        "상장시장 낱말이 없으면 국내 상장으로 좁힘",
+      ],
+      ["sort", "순자산 큰 순", "순자산 ↓", "rule", "'큰 순'은 내림차순"],
+      ["limit", null, "상위 10", "default", "개수 말이 없으면 10개"],
+    ]),
+
     domains: [
       domain("kr_etf", "FOUND", ETF_DATE),
       domain("kr_etn", "AXIS_ABSENT", BOND_DATE),
