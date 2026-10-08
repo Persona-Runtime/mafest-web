@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import Ajv2020 from "ajv/dist/2020";
@@ -12,6 +13,8 @@ import {
   meta,
   noResult,
   PRODUCT_FIXTURES,
+  STREAM_FIXTURES,
+  type StreamFixtureEvent,
 } from "./lib/fixtures";
 import type { SearchResponse } from "./lib/types";
 import {
@@ -19,6 +22,7 @@ import {
   validateMeta,
   validateProductDetail,
   validateSearchResponse,
+  validateStream,
 } from "./lib/validate";
 
 /**
@@ -30,9 +34,12 @@ import {
  */
 // vitest는 저장소 루트에서 실행한다(package.json의 test 스크립트).
 const root = process.cwd();
-const spec = parse(
-  readFileSync(resolve(root, "contract/public-api-v1.openapi.yaml"), "utf8"),
-);
+const CONTRACT_PATH = resolve(root, "contract/public-api-v1.openapi.yaml");
+const spec = parse(readFileSync(CONTRACT_PATH, "utf8"));
+
+/** r9(1.3.0) 정본의 sha256. mafest `tests/contract/` 사본도 같은 값을 고정한다. 계약을 바꾸면 두 곳을 함께 바꾼다. */
+const CONTRACT_SHA256 =
+  "e6c7a2ae8e6a7c12a871cec0f71885a4b95c55fee79bd1b2ea12c7bc0e60dd42";
 
 const ajv = new Ajv2020({ strict: false, allErrors: true });
 ajv.addSchema({ ...spec, $id: "spec" });
@@ -117,10 +124,12 @@ describe("명세 스키마", () => {
     expect(check("SearchResponse", caveatOutage)).toEqual([]);
   });
 
-  test("요청: 200자 초과 거절", () => {
-    expect(check("SearchRequest", { question: "가".repeat(201) })).not.toEqual(
+  test("요청: 정리 전 1000자 초과 거절", () => {
+    // 정리 뒤 1~200자 검사는 서버가 한다(명세 §2-1). yaml 은 원래 질문 길이만 막는다.
+    expect(check("SearchRequest", { question: "가".repeat(1001) })).not.toEqual(
       [],
     );
+    expect(check("SearchRequest", { question: "가".repeat(1000) })).toEqual([]);
     expect(check("SearchRequest", { question: "국내 ETF" })).toEqual([]);
   });
 });
@@ -135,6 +144,23 @@ type Mutation = [string, SearchResponse, (r: Record<string, unknown>) => void];
 type Cells = { rows: { values: Record<string, Record<string, unknown>> }[] }[];
 
 const MUTATIONS: Mutation[] = [
+  [
+    "answer.text 400자 초과",
+    answered,
+    (r) => {
+      (r.answer as Record<string, unknown>).text = "가".repeat(401);
+    },
+  ],
+  [
+    "suggestions 4개",
+    answered,
+    (r) => {
+      r.suggestions = Array.from({ length: 4 }, (_, i) => ({
+        label: `질문 ${i}`,
+        question: `국내 ETF ${i}`,
+      }));
+    },
+  ],
   [
     "해석 과정(mappings) 누락",
     answered,
@@ -350,5 +376,59 @@ describe("ErrorBody: 명세 ↔ 웹 검사기 일치", () => {
       () => validateErrorBody(structuredClone(body)),
       "웹이 받아 줌",
     ).toThrow();
+  });
+});
+
+/** 스트림 이벤트 이름 → yaml 의 data 스키마(searchStream 설명의 대응표). */
+const STREAM_SCHEMA: Record<string, string> = {
+  start: "StreamStart",
+  interpretation: "StreamInterpretation",
+  results: "StreamResults",
+  answer_delta: "StreamAnswerDelta",
+  answer_done: "StreamAnswerDone",
+  suggestions: "StreamSuggestions",
+  done: "StreamDone",
+  error: "ErrorBody",
+};
+
+function withoutLast(events: StreamFixtureEvent[]): StreamFixtureEvent[] {
+  return events.slice(0, -1);
+}
+
+describe("stream contract", () => {
+  test.each(Object.entries(STREAM_FIXTURES))(
+    "stream fixture %s passes the spec event schemas and the web stream validator",
+    (_, events) => {
+      for (const { event, data } of events) {
+        expect(check(STREAM_SCHEMA[event], data), event).toEqual([]);
+      }
+      expect(() => validateStream(events)).not.toThrow();
+    },
+  );
+
+  const normal = STREAM_FIXTURES.answered;
+  const brokenStreams: [string, StreamFixtureEvent[]][] = [
+    ["does not start with start", normal.slice(1)],
+    ["ends without done or error", withoutLast(normal)],
+    ["has an event after done", [...normal, normal[normal.length - 1]]],
+    [
+      "sends answer_delta before results",
+      [normal[0], normal[1], normal[3], normal[2], ...normal.slice(4)],
+    ],
+    ["skips interpretation", [normal[0], ...normal.slice(2)]],
+  ];
+
+  test.each(brokenStreams)("rejects a stream that %s", (_, events) => {
+    expect(() => validateStream(events)).toThrow();
+  });
+});
+
+describe("contract pin", () => {
+  test("canonical yaml keeps the frozen r9 sha256", () => {
+    const digest = createHash("sha256")
+      .update(readFileSync(CONTRACT_PATH))
+      .digest("hex");
+    expect(digest).toBe(CONTRACT_SHA256);
+    expect(spec.info.version).toBe("1.3.0");
   });
 });

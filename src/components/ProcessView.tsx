@@ -5,11 +5,13 @@ import { Stepper } from "./Stepper";
 
 const STAGE_LABEL: Record<TraceStage, string> = {
   route: "라우팅",
+  llm_parse: "AI 해석",
   query: "조회",
   compute: "연산",
   gate: "게이트",
   verify: "검증",
   generate: "생성",
+  suggest: "후속 질문",
   render: "렌더",
 };
 

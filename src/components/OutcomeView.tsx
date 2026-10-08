@@ -219,6 +219,20 @@ function OutcomeBody({
           />
         </>
       );
+    case "unread":
+      return (
+        <>
+          <StateBox
+            tone="info"
+            title="질문 일부를 읽지 못했습니다"
+            response={response}
+          />
+          <QuestionChips
+            title="다시 물어볼 질문"
+            options={response.suggestions}
+          />
+        </>
+      );
     case "unavailable":
       return (
         <StateBox tone="warn" title="일시적인 연결 문제" response={response}>
