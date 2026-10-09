@@ -103,7 +103,7 @@ describe("홈", () => {
   });
 });
 
-describe("결과 — outcome 8종", () => {
+describe("결과 — outcome 9종", () => {
   test("answered: 질문 해석·처리 과정·답변·표 (넓은 화면)", async () => {
     setViewport(1280);
     renderApp({

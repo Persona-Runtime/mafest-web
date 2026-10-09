@@ -695,7 +695,9 @@ export const answered: SearchResponse = {
   },
   results: [etfGroup(ETF_SEEDS.slice(0, 5), 1180, 3)],
   clarify: null,
-  suggestions: [],
+  suggestions: [
+    { label: "총보수 순위로", question: "총보수 낮은 국내 ETF 5개" },
+  ],
   trace: trace(
     [
       {
@@ -856,7 +858,12 @@ export const caveat: SearchResponse = {
     },
   ],
   clarify: null,
-  suggestions: [],
+  suggestions: [
+    {
+      label: "국내 ETF만",
+      question: "퇴직연금 가능하고 총보수 0.2% 미만인 국내 ETF",
+    },
+  ],
   trace: trace(
     [
       {
@@ -1254,6 +1261,116 @@ export const refused: SearchResponse = {
   ),
 };
 
+function unreadGraph(): SearchGraph {
+  const g = new GraphBuilder();
+  const etf = g.concept("c1", "ETF", "fp:ETF");
+  listedDomestic(g, etf, 2);
+  g.node("s0", "set", "국내 ETF 전체", {
+    count: 1180,
+    domain: "kr_etf",
+    mapping: 2,
+  });
+  g.edge(etf, "s0", "scope", { mapping: 2 });
+  // 읽은 조건(총보수 정렬)은 그리지 않고, 못 읽은 구절에서 unread 집합 하나로 끝낸다(명세 §2-6-2).
+  g.node("s1", "set", "'공부 중인데' 못 읽음", {
+    domain: "kr_etf",
+    mapping: 0,
+    state: "unread",
+  });
+  g.edge("s0", "s1", "constraint", { mapping: 0, state: "unread" });
+  return g.build();
+}
+
+/** [r9] 질문 일부를 조건으로 읽지 못해 조회하지 않은 경우. 다시 물을 질문은 못 읽은 구절을 뺀 질문이다. */
+export const unread: SearchResponse = {
+  request_id: "mock-unread-0011",
+  question: "공부 중인데 총보수 낮은 국내 ETF",
+  outcome: "unread",
+  answer: {
+    text: "질문의 '공부 중인데' 부분을 조건으로 정확히 읽지 못해 조회하지 않았습니다. 항목과 기준을 함께 적어 주세요(예: 총보수 0.3% 이하).",
+    generated_by: "template",
+    notices: [],
+  },
+  interpretation: {
+    graph: unreadGraph(),
+    mappings: mappings("공부 중인데 총보수 낮은 국내 ETF", [
+      [
+        "condition",
+        "공부 중인데",
+        "조건 해석 불가(조회하지 않음)",
+        "rule",
+        "어떤 조건으로도 읽히지 않은 낱말",
+      ],
+      ["sort", "총보수 낮은", "총보수 ↑", "rule", "'낮은'은 오름차순"],
+      ["domain", "국내 ETF", "국내 ETF", "synonym", "상품군 사전 일치"],
+    ]),
+    domains: [domain("kr_etf", "AXIS_ABSENT", ETF_DATE)],
+    conditions: [],
+    sort: { axis: "expense_ratio", label: "총보수", dir: "asc" },
+    limit: 10,
+  },
+  results: [],
+  clarify: null,
+  suggestions: [
+    { label: "'공부 중인데' 빼고", question: "총보수 낮은 국내 ETF" },
+  ],
+  trace: trace(
+    [
+      {
+        stage: "route",
+        label: "라우팅",
+        ms: 3,
+        detail: "국내 ETF · 해석되지 않은 낱말 '공부 중인데'",
+        query: null,
+      },
+      {
+        stage: "gate",
+        label: "게이트",
+        ms: 1,
+        detail: "CONDITION_NOT_PARSED → 정형 문장",
+        query: null,
+      },
+      RENDER,
+    ],
+    false,
+  ),
+};
+
+/** [r9] 새 notice 코드(시세 하루치 값·이상치 제외)를 쓰는 답. */
+export const priceSnapshot: SearchResponse = {
+  ...answered,
+  request_id: "mock-price-snapshot-0012",
+  question: "괴리율 1% 이하 국내 ETF 순자산 큰 순",
+  answer: {
+    text: "괴리율 1% 이하 국내 ETF 중 순자산이 가장 큰 상품은 SAMPLE 코스피200(9.1조 원)입니다.",
+    generated_by: "llm",
+    notices: [
+      {
+        code: "PRICE_SNAPSHOT",
+        text: "괴리율·거래량은 시세 기준일 하루치 값입니다.",
+      },
+      {
+        code: "OUTLIER_EXCLUDED",
+        text: "괴리율 절댓값 5%를 넘는 값은 이상치로 보고 뺐습니다.",
+      },
+    ],
+  },
+  interpretation: {
+    ...answered.interpretation,
+    mappings: mappings("괴리율 1% 이하 국내 ETF 순자산 큰 순", [
+      ["sort", "순자산 큰", "순자산 ↓", "rule", "'큰'·'많은'은 내림차순"],
+      ["domain", "국내 ETF", "국내 ETF", "synonym", "상품군 사전 일치"],
+      [
+        "condition",
+        "괴리율 1% 이하",
+        "괴리율 ≤ 1%",
+        "pattern",
+        "축 이름 + 숫자·단위 + 비교어",
+      ],
+    ]),
+  },
+};
+
 export const errorOutcome: SearchResponse = {
   request_id: "mock-error-0008",
   question: "오류 재현",
@@ -1585,12 +1702,13 @@ export const caveatOutage: SearchResponse = {
   ),
 };
 
-/** outcome 8종 대표 픽스처. 계약·화면 테스트가 이 목록을 돈다. */
+/** outcome 9종 대표 픽스처. 계약·화면 테스트가 이 목록을 돈다. */
 export const OUTCOME_FIXTURES = {
   answered,
   caveat,
   no_result: noResult,
   not_collected: notCollected,
+  unread,
   unavailable,
   ambiguous,
   refused,
@@ -1603,7 +1721,94 @@ export const ALL_SEARCH_FIXTURES: SearchResponse[] = [
   count,
   bond,
   caveatOutage,
+  priceSnapshot,
 ];
+
+// ---------------------------------------------------------------------------
+// [r9] 스트림(POST /v1/search/stream)
+// ---------------------------------------------------------------------------
+
+/** 스트림 이벤트 한 줄(event 이름 + data). 계약 테스트가 data 를 yaml 이벤트 스키마로 검사한다. */
+export interface StreamFixtureEvent {
+  event: string;
+  data: unknown;
+}
+
+/** results 이벤트 때의 그래프. 상품 노드의 cited 는 LLM 문장 검증 전이라 모두 false 다. */
+function uncited(graph: SearchGraph): SearchGraph {
+  return {
+    ...graph,
+    nodes: graph.nodes.map((node) =>
+      node.kind === "product" ? { ...node, cited: false } : node,
+    ),
+  };
+}
+
+/** start → interpretation → results 까지. 해석 때 graph 는 빈 그래프다. */
+function streamHead(response: SearchResponse): StreamFixtureEvent[] {
+  return [
+    {
+      event: "start",
+      data: { request_id: response.request_id, question: response.question },
+    },
+    {
+      event: "interpretation",
+      data: {
+        interpretation: {
+          ...response.interpretation,
+          graph: { nodes: [], edges: [] },
+        },
+      },
+    },
+    {
+      event: "results",
+      data: {
+        outcome: response.outcome,
+        results: response.results,
+        clarify: response.clarify,
+        graph: uncited(response.interpretation.graph),
+      },
+    },
+  ];
+}
+
+/** 정상 스트림: 문장 두 개를 보낸 뒤 answer_done·suggestions·done. */
+const ANSWER_SENTENCES = [
+  "순자산이 가장 큰 국내 ETF는 SAMPLE 코스피200(순자산 9.1조 원, 총보수 0.15%)입니다.",
+  "그다음은 DEMO 미국S&P500(6.4조 원)과 SAMPLE 반도체TOP10(3.8조 원)입니다.",
+];
+
+export const STREAM_FIXTURES: Record<string, StreamFixtureEvent[]> = {
+  answered: [
+    ...streamHead(answered),
+    ...ANSWER_SENTENCES.map((text, index) => ({
+      event: "answer_delta",
+      data: { index, text },
+    })),
+    { event: "answer_done", data: { answer: answered.answer } },
+    { event: "suggestions", data: { suggestions: answered.suggestions } },
+    { event: "done", data: { response: answered } },
+  ],
+  // 생성 시한(20초) 초과: 문장 없이 fallback 답으로 끝낸다. 표는 그대로다.
+  generationTimeout: [
+    ...streamHead(fallback),
+    { event: "answer_done", data: { answer: fallback.answer } },
+    { event: "suggestions", data: { suggestions: fallback.suggestions } },
+    { event: "done", data: { response: fallback } },
+  ],
+  // 전체 시한(30초) 초과: 그 자리에서 error 한 번 보내고 닫는다.
+  requestTimeout: [
+    ...streamHead(answered).slice(0, 3),
+    {
+      event: "error",
+      data: {
+        code: "timeout",
+        message: "요청 시간이 초과됐습니다.",
+        request_id: answered.request_id,
+      },
+    },
+  ],
+};
 
 // ---------------------------------------------------------------------------
 // 상품 상세

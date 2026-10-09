@@ -16,10 +16,14 @@ import {
   RELATION_TYPES,
   TRACE_STAGES,
   VALUE_SOURCES,
+  ANSWER_TEXT_MAX,
+  STREAM_EVENT_NAMES,
+  SUGGESTIONS_MAX,
   type ErrorBody,
   type Meta,
   type ProductDetail,
   type SearchResponse,
+  type StreamEvent,
 } from "./types";
 
 /**
@@ -156,12 +160,19 @@ function options(
   });
 }
 
+function validateClarify(v: unknown, path: string): void {
+  const clarify = record(v, path, ["kind", "reason", "options"]);
+  oneOf(clarify.kind, CLARIFY_KINDS, `${path}.kind`);
+  str(clarify.reason, `${path}.reason`);
+  options(clarify.options, `${path}.options`, 2, 4);
+}
+
 /** 표를 내는 outcome. 나머지는 results가 반드시 비어 있다(명세 §2-3). */
 const TABLE_OUTCOMES: ReadonlySet<string> = new Set(["answered", "caveat"]);
 
 function validateAnswer(v: unknown): void {
   const answer = record(v, "answer", ["text", "generated_by", "notices"]);
-  str(answer.text, "answer.text", 1);
+  str(answer.text, "answer.text", 1, ANSWER_TEXT_MAX);
   oneOf(answer.generated_by, GENERATED_BY, "answer.generated_by");
   arr(answer.notices, "answer.notices").forEach((n, i) => {
     const p = `answer.notices[${i}]`;
@@ -181,17 +192,21 @@ function stateOrNull(v: unknown, path: string): void {
  * [r8] 탐색 그래프. yaml로 표현 못 하는 규칙도 여기서 본다: id 중복 금지, 간선 양 끝이
  * 실제 노드일 것, mapping 번호가 mappings 범위 안일 것.
  */
-function validateGraph(v: unknown, mappings: unknown): void {
+function validateGraph(
+  v: unknown,
+  mappings: unknown,
+  base = "interpretation.graph",
+): void {
   const mappingCount = Array.isArray(mappings) ? mappings.length : 0;
-  const g = record(v, "interpretation.graph", ["nodes", "edges"]);
+  const g = record(v, base, ["nodes", "edges"]);
   const ids = new Set<string>();
   const mappingRef = (value: unknown, path: string) => {
     if (value === null) return;
     int(value, path, 0, Math.max(0, mappingCount - 1));
     if (mappingCount === 0) throw new ContractError(path);
   };
-  arr(g.nodes, "interpretation.graph.nodes", 40).forEach((n, i) => {
-    const p = `interpretation.graph.nodes[${i}]`;
+  arr(g.nodes, `${base}.nodes`, 40).forEach((n, i) => {
+    const p = `${base}.nodes[${i}]`;
     const node = record(n, p, [
       "id",
       "kind",
@@ -221,8 +236,8 @@ function validateGraph(v: unknown, mappings: unknown): void {
     mappingRef(node.mapping, `${p}.mapping`);
     stateOrNull(node.state, `${p}.state`);
   });
-  arr(g.edges, "interpretation.graph.edges", 60).forEach((e, i) => {
-    const p = `interpretation.graph.edges[${i}]`;
+  arr(g.edges, `${base}.edges`, 60).forEach((e, i) => {
+    const p = `${base}.edges[${i}]`;
     const edge = record(e, p, [
       "from",
       "to",
@@ -410,15 +425,12 @@ export function validateSearchResponse(input: unknown): SearchResponse {
 
   // clarify는 ambiguous일 때만 있고, 그때는 반드시 있다(없으면 화면이 막다른 길이 된다).
   if (outcome === "ambiguous") {
-    const clarify = record(r.clarify, "clarify", ["kind", "reason", "options"]);
-    oneOf(clarify.kind, CLARIFY_KINDS, "clarify.kind");
-    str(clarify.reason, "clarify.reason");
-    options(clarify.options, "clarify.options", 2, 4);
+    validateClarify(r.clarify, "clarify");
   } else if (r.clarify !== null) {
     throw new ContractError("clarify");
   }
 
-  options(r.suggestions, "suggestions", 0, 3);
+  options(r.suggestions, "suggestions", 0, SUGGESTIONS_MAX);
   if (r.trace !== null) validateTrace(r.trace);
 
   return r as unknown as SearchResponse;
@@ -518,4 +530,132 @@ export function validateErrorBody(input: unknown): ErrorBody {
   str(e.message, "message", 1);
   requestId(e.request_id, "request_id");
   return e as unknown as ErrorBody;
+}
+
+/**
+ * 스트림 이벤트 하나의 data 를 yaml 의 이벤트 스키마(StreamStart…StreamDone, error=ErrorBody)로 검사한다.
+ * mappings 는 앞선 interpretation 이벤트의 해석 목록이다. results 의 graph 가 가리키는 mapping 번호를 이것으로 확인한다.
+ */
+export function validateStreamEvent(
+  name: unknown,
+  data: unknown,
+  mappings: unknown = [],
+): StreamEvent {
+  const event = oneOf(name, STREAM_EVENT_NAMES, "event");
+  switch (event) {
+    case "start": {
+      const d = record(data, "start", ["request_id", "question"]);
+      requestId(d.request_id, "start.request_id");
+      str(d.question, "start.question");
+      break;
+    }
+    case "interpretation": {
+      const d = record(data, "interpretation", ["interpretation"]);
+      validateInterpretation(d.interpretation);
+      break;
+    }
+    case "results": {
+      const d = record(data, "results", [
+        "outcome",
+        "results",
+        "clarify",
+        "graph",
+      ]);
+      const outcome = oneOf(d.outcome, OUTCOMES, "results.outcome");
+      const results = arr(d.results, "results.results");
+      if (results.length > 0 && !TABLE_OUTCOMES.has(outcome))
+        throw new ContractError("results.results");
+      results.forEach((g, gi) =>
+        validateResultGroup(g, `results.results[${gi}]`),
+      );
+      if (d.clarify !== null) validateClarify(d.clarify, "results.clarify");
+      validateGraph(d.graph, mappings, "results.graph");
+      break;
+    }
+    case "answer_delta": {
+      const d = record(data, "answer_delta", ["index", "text"]);
+      int(d.index, "answer_delta.index", 0, 4);
+      str(d.text, "answer_delta.text", 1);
+      break;
+    }
+    case "answer_done": {
+      const d = record(data, "answer_done", ["answer"]);
+      validateAnswer(d.answer);
+      break;
+    }
+    case "suggestions": {
+      const d = record(data, "suggestions", ["suggestions"]);
+      options(d.suggestions, "suggestions.suggestions", 0, SUGGESTIONS_MAX);
+      break;
+    }
+    case "done": {
+      const d = record(data, "done", ["response"]);
+      validateSearchResponse(d.response);
+      break;
+    }
+    case "error":
+      validateErrorBody(data);
+      break;
+  }
+  return { event, data } as StreamEvent;
+}
+
+/** 스트림 이벤트 순서. 같은 단계는 answer_delta 만 여러 번 올 수 있다. */
+const STREAM_ORDER: Readonly<Record<string, number>> = {
+  start: 0,
+  interpretation: 1,
+  results: 2,
+  answer_delta: 3,
+  answer_done: 4,
+  suggestions: 5,
+  done: 6,
+};
+
+/**
+ * 끝난 스트림 전체를 검사한다. 각 이벤트 data 는 validateStreamEvent 로, 순서는 다음 규칙으로 본다.
+ * - start 가 먼저 온다. done 또는 error 로 끝나고, 그 뒤에는 이벤트가 없다.
+ * - error 는 어느 자리에서든 한 번 올 수 있고 스트림을 끝낸다.
+ * - 나머지는 start → interpretation → results → answer_delta* → answer_done → suggestions → done 순서이며 건너뛰지 않는다.
+ *   그래서 results 앞에 answer_delta 가 올 수 없다.
+ * - answer_delta.index 는 0 부터 하나씩 늘어난다.
+ */
+export function validateStream(
+  events: ReadonlyArray<{ event: unknown; data: unknown }>,
+): StreamEvent[] {
+  if (events.length === 0) throw new ContractError("stream");
+  const checked: StreamEvent[] = [];
+  let mappings: unknown = [];
+  let position = -1;
+  let nextDelta = 0;
+  events.forEach((item, i) => {
+    const path = `stream[${i}]`;
+    if (i > 0) {
+      const last = checked[checked.length - 1];
+      if (last.event === "done" || last.event === "error")
+        throw new ContractError(path);
+    }
+    const event = validateStreamEvent(item.event, item.data, mappings);
+    if (i === 0 && event.event !== "start") throw new ContractError(path);
+    if (event.event !== "error") {
+      const order = STREAM_ORDER[event.event];
+      const repeatsDelta = event.event === "answer_delta" && position === order;
+      // 답 문장이 0개(템플릿 답·LLM 안 씀)면 results 다음에 바로 answer_done 이 온다.
+      const skipsDeltas =
+        event.event === "answer_done" && position === STREAM_ORDER.results;
+      if (!repeatsDelta && !skipsDeltas && order !== position + 1)
+        throw new ContractError(path);
+      position = order;
+    }
+    if (event.event === "interpretation")
+      mappings = event.data.interpretation.mappings;
+    if (event.event === "answer_delta") {
+      if (event.data.index !== nextDelta)
+        throw new ContractError(`${path}.index`);
+      nextDelta += 1;
+    }
+    checked.push(event);
+  });
+  const end = checked[checked.length - 1].event;
+  if (end !== "done" && end !== "error") throw new ContractError("stream");
+  return checked;
 }

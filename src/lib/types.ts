@@ -23,6 +23,7 @@ export const OUTCOMES = [
   "caveat",
   "no_result",
   "not_collected",
+  "unread",
   "unavailable",
   "ambiguous",
   "refused",
@@ -53,11 +54,13 @@ export type ClarifyKind = (typeof CLARIFY_KINDS)[number];
 
 export const TRACE_STAGES = [
   "route",
+  "llm_parse",
   "query",
   "compute",
   "gate",
   "verify",
   "generate",
+  "suggest",
   "render",
 ] as const;
 export type TraceStage = (typeof TRACE_STAGES)[number];
@@ -129,6 +132,26 @@ export interface Notice {
   text: string;
 }
 
+/**
+ * 39 §2-5 notice 코드 표에 있는 코드. yaml 의 `Notice.code` 는 자유 문자열이라 검사기는 모르는 코드를
+ * 막지 않는다. 화면이 코드별로 다르게 그릴 때 이 목록을 쓴다.
+ */
+export const NOTICE_CODES = [
+  "RETURN_PAST",
+  "PARTIAL_AXIS",
+  "PENSION_RULE",
+  "AXIS_ABSENT",
+  "STORE_BLOCKED",
+  "POLICY_RECOMMEND",
+  "PRICE_SNAPSHOT",
+  "ZERO_EXCLUDED",
+  "OUTLIER_EXCLUDED",
+  "JUDGED_ONLY",
+  "NULL_EXCLUDED",
+  "CONDITION_NOT_PARSED",
+] as const;
+export type NoticeCode = (typeof NOTICE_CODES)[number];
+
 export interface Answer {
   text: string;
   generated_by: GeneratedBy;
@@ -175,6 +198,7 @@ export const MAPPING_METHODS = [
   "rule",
   "entity",
   "default",
+  "llm",
 ] as const;
 export type MappingMethod = (typeof MAPPING_METHODS)[number];
 
@@ -218,6 +242,7 @@ export const GRAPH_STATES = [
   "absent",
   "blocked",
   "ambiguous",
+  "unread",
 ] as const;
 export type GraphState = (typeof GRAPH_STATES)[number];
 
@@ -343,8 +368,9 @@ export interface SearchResponse {
   results: ResultGroup[];
   clarify: Clarify | null;
   /**
-   * 이어서 할 수 있는 질문. no_result(완화 질문), refused(대신 할 수 있는 질문, B3),
-   * not_collected에서 쓴다. 없으면 서버가 `[]`을 보낸다. 키 누락은 계약 위반이다.
+   * 이어서 할 수 있는 질문. 최대 3개. answered·caveat(후속 질문), no_result(완화 질문),
+   * refused(대신 할 수 있는 질문), not_collected·unread(다시 물을 질문)에서 쓴다. 없으면 서버가
+   * `[]`을 보낸다. 키 누락은 계약 위반이다.
    */
   suggestions: QuestionOption[];
   trace: Trace | null;
@@ -441,4 +467,74 @@ export class ApiError extends Error {
   }
 }
 
+/** 정리(공백·전각 반각화) 뒤 질문 길이 상한. 입력창도 이 길이까지 받는다. */
 export const QUESTION_MAX = 200;
+/** 정리하기 전 원래 질문 길이 상한(SearchRequest.question maxLength). */
+export const QUESTION_RAW_MAX = 1000;
+/** answer.text 상한(최대 5문장). */
+export const ANSWER_TEXT_MAX = 400;
+/** suggestions 상한. */
+export const SUGGESTIONS_MAX = 3;
+
+/**
+ * `POST /v1/search/stream` 이벤트. 순서: start → interpretation → results → answer_delta(0개 이상)
+ * → answer_done → suggestions → done. 실패하면 그 자리에서 error 한 번 보내고 닫는다.
+ * done 의 response 는 `/v1/search` 응답과 같은 스키마이고, 웹은 이것으로 화면을 최종 확정한다.
+ */
+export const STREAM_EVENT_NAMES = [
+  "start",
+  "interpretation",
+  "results",
+  "answer_delta",
+  "answer_done",
+  "suggestions",
+  "done",
+  "error",
+] as const;
+export type StreamEventName = (typeof STREAM_EVENT_NAMES)[number];
+
+export interface StreamStart {
+  request_id: string;
+  question: string;
+}
+
+/** 해석 직후. interpretation.graph 는 아직 빈 그래프다. */
+export interface StreamInterpretation {
+  interpretation: Interpretation;
+}
+
+/** 조회·게이트 뒤. 탐색 그래프를 여기서 보낸다(상품 노드 cited 는 모두 false, done 에서 확정). */
+export interface StreamResults {
+  outcome: Outcome;
+  results: ResultGroup[];
+  clarify: Clarify | null;
+  graph: SearchGraph;
+}
+
+/** 검증을 통과한 답 문장 하나. index 는 0~4. */
+export interface StreamAnswerDelta {
+  index: number;
+  text: string;
+}
+
+export interface StreamAnswerDone {
+  answer: Answer;
+}
+
+export interface StreamSuggestions {
+  suggestions: QuestionOption[];
+}
+
+export interface StreamDone {
+  response: SearchResponse;
+}
+
+export type StreamEvent =
+  | { event: "start"; data: StreamStart }
+  | { event: "interpretation"; data: StreamInterpretation }
+  | { event: "results"; data: StreamResults }
+  | { event: "answer_delta"; data: StreamAnswerDelta }
+  | { event: "answer_done"; data: StreamAnswerDone }
+  | { event: "suggestions"; data: StreamSuggestions }
+  | { event: "done"; data: StreamDone }
+  | { event: "error"; data: ErrorBody };
