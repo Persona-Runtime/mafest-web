@@ -4,11 +4,16 @@ import { useTitle } from "../lib/useTitle";
 import { OutcomeView } from "../components/OutcomeView";
 import { ProductDetailView } from "../components/ProductDetail";
 import { SearchBox } from "../components/SearchBox";
-import { RequestFailed, SearchLoading } from "../components/StatusViews";
+import {
+  RequestFailed,
+  RetryingNotice,
+  SearchLoading,
+} from "../components/StatusViews";
 import { productHref, searchHref } from "../lib/format";
+import { provisionalResponse, streamPhase } from "../lib/searchStream";
 import { ApiError, QUESTION_MAX, type SearchApi } from "../lib/types";
 import { useMediaQuery, WIDE_QUERY } from "../lib/useMediaQuery";
-import { useRequest } from "../lib/useRequest";
+import { useSearchRun } from "../lib/useSearchRun";
 
 /**
  * 결과 화면 `/search?q=…`. 질문은 URL에만 있다 — 새로고침·뒤로가기·링크 공유가 그대로 된다.
@@ -25,9 +30,14 @@ export function SearchRoute({ api }: { api: SearchApi }) {
 
   useTitle(question);
 
-  const { state, retry } = useRequest(tooLong ? null : question, (signal) =>
-    api.search(question!, signal),
-  );
+  const { state, retry } = useSearchRun(tooLong ? null : question, api);
+  // 스트리밍 중에는 지금까지 받은 것으로 임시 응답을 만들어 같은 화면으로 그린다.
+  const streaming =
+    state.status === "streaming" && question !== null
+      ? provisionalResponse(state.view, question)
+      : null;
+  // 스트리밍 중과 완성 뒤를 같은 자리의 같은 OutcomeView(같은 key)로 그려 상태를 이어 간다.
+  const shown = state.status === "done" ? state.data : streaming;
 
   const submit = (next: string) => navigate(searchHref(next));
 
@@ -62,21 +72,37 @@ export function SearchRoute({ api }: { api: SearchApi }) {
           {tooLong && (
             <RequestFailed error={new ApiError(422, "question_too_long")} />
           )}
-          {state.status === "loading" && (
-            <SearchLoading startedAt={state.startedAt} />
+          {state.status === "streaming" && streaming === null && (
+            <SearchLoading
+              startedAt={state.startedAt}
+              retrying={state.view.retrying}
+            />
           )}
           {state.status === "failed" && (
             <RequestFailed error={state.error} onRetry={retry} />
           )}
-          {state.status === "done" && (
-            <OutcomeView
-              key={state.data.request_id}
-              response={state.data}
-              selectedId={selected?.productId ?? null}
-              onOpen={(domain, row) => openProduct(domain, row.product_id)}
-              onRetry={retry}
-            />
-          )}
+          {state.status === "streaming" &&
+            state.view.retrying &&
+            shown !== null && <RetryingNotice />}
+          {shown !== null &&
+            state.status !== "failed" &&
+            state.status !== "idle" && (
+              <OutcomeView
+                key={state.runId}
+                response={shown}
+                stream={
+                  state.status === "streaming"
+                    ? {
+                        phase: streamPhase(state.view),
+                        sentences: state.view.sentences,
+                      }
+                    : undefined
+                }
+                selectedId={selected?.productId ?? null}
+                onOpen={(domain, row) => openProduct(domain, row.product_id)}
+                onRetry={retry}
+              />
+            )}
           {question !== null && <InvestmentNotice />}
         </div>
 

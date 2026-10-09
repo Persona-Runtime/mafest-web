@@ -93,7 +93,7 @@ export function InterpretationCard({ response }: { response: SearchResponse }) {
                 </span>
                 <span className="mapping__how">
                   <span className={`method method--${m.method}`}>
-                    {METHOD_LABEL[m.method]}
+                    {METHOD_LABEL[m.method] ?? m.method}
                   </span>
                   {m.note && <span className="mapping__note">{m.note}</span>}
                 </span>

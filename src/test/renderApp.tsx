@@ -3,8 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { vi } from "vitest";
 import App from "../App";
+import { streamEventsFor } from "../lib/fixtures";
 import { createMockApi } from "../lib/mockApi";
-import type { SearchApi } from "../lib/types";
+import type { SearchApi, StreamEvent } from "../lib/types";
 import { LocationProbe } from "./LocationProbe";
 
 /**
@@ -17,7 +18,24 @@ export function testApi(overrides: Partial<SearchApi> = {}): SearchApi {
     search: vi.fn(mock.search),
     getProduct: vi.fn(mock.getProduct),
     getMeta: vi.fn(mock.getMeta),
+    // search만 바꾼 테스트는 같은 응답(또는 같은 오류)을 스트림으로도 내게 한다.
+    searchStream: vi.fn(
+      overrides.search
+        ? streamFromSearch(overrides.search)
+        : (question, signal) => mock.searchStream(question, signal),
+    ),
     ...overrides,
+  };
+}
+
+/** 응답 하나(또는 열기 전 오류)를 정상 스트림으로 바꾼다. search 오류는 스트림을 열기 전 오류와 같다. */
+export function streamFromSearch(
+  search: SearchApi["search"],
+): SearchApi["searchStream"] {
+  return async function* (question, signal) {
+    const response = await search(question, signal);
+    for (const item of streamEventsFor(response))
+      yield item as unknown as StreamEvent;
   };
 }
 
@@ -26,13 +44,13 @@ export function renderApp({
   path = "/",
 }: { api?: SearchApi; path?: string } = {}) {
   const user = userEvent.setup();
-  render(
+  const { unmount } = render(
     <MemoryRouter initialEntries={[path]}>
       <App api={api} />
       <LocationProbe />
     </MemoryRouter>,
   );
-  return { user, api };
+  return { user, api, unmount };
 }
 
 export function currentLocation(): string {

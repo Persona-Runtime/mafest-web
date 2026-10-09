@@ -105,7 +105,7 @@ export function AboutRoute({ meta }: { meta: RequestState<Meta> }) {
         <ul className="plain-list">
           <li>상품 추천, 가격 전망, 투자성향 적합성 판단은 하지 않습니다.</li>
           <li>
-            수집하지 않은 항목(예: 거래량)은 추정하지 않고 &ldquo;수집 범위
+            수집하지 않은 항목(예: 과거 추이)은 추정하지 않고 &ldquo;수집 범위
             밖&rdquo;으로 답합니다.
           </li>
           <li>

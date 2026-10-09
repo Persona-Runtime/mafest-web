@@ -420,7 +420,7 @@ describe("결과 — outcome 9종", () => {
         name: "수집하지 않은 데이터입니다",
       }),
     ).toBeVisible();
-    expect(screen.getByText(/없는 항목: 거래량/)).toBeVisible();
+    expect(screen.getByText(/없는 항목: 과거 추이/)).toBeVisible();
   });
 
   test("unavailable: 일시 장애 문구와 다시 시도(수집 범위 밖과 구분)", async () => {
