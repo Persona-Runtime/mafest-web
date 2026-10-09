@@ -22,7 +22,7 @@ import {
 const clone = <T>(value: T): T => structuredClone(value);
 
 describe("픽스처", () => {
-  test("outcome 8종이 하나씩 있다", () => {
+  test("outcome 9종이 하나씩 있다", () => {
     expect(Object.keys(OUTCOME_FIXTURES).sort()).toEqual([...OUTCOMES].sort());
     for (const [outcome, fixture] of Object.entries(OUTCOME_FIXTURES))
       expect(fixture.outcome).toBe(outcome);

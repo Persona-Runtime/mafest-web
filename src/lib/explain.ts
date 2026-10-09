@@ -142,6 +142,7 @@ export const GATE_HEADLINE: Record<Outcome, string> = {
   caveat: "일부만 근거 있음 → 주의와 함께 답함",
   no_result: "조건에 맞는 근거 없음 → 정해진 문장",
   not_collected: "수집하지 않은 항목 → 정해진 문장",
+  unread: "질문 일부를 읽지 못함 → 다시 물을 질문 제시",
   unavailable: "데이터 저장소 장애 → 정해진 문장",
   ambiguous: "조건이 모호함 → 선택지 제시",
   refused: "정책상 답하지 않는 질문 → 거절",
@@ -350,6 +351,7 @@ export const METHOD_LABEL: Record<MappingMethod, string> = {
   rule: "규칙",
   entity: "이름 사전",
   default: "기본값",
+  llm: "AI 해석",
 };
 
 export type QuestionSegment =
@@ -427,6 +429,7 @@ export const GRAPH_STATE_LABEL: Record<GraphState, string> = {
   absent: "수집 안 함",
   blocked: "장애",
   ambiguous: "선택 필요",
+  unread: "못 읽음",
 };
 
 export function setCountText(node: GraphNode): string {

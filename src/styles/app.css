@@ -339,6 +339,8 @@ button:disabled:hover {
   border: 1px solid var(--line);
   border-radius: var(--radius-l);
   padding: var(--space-5);
+  /* 서버가 준 상품명·문장에 띄어쓰기 없는 긴 낱말이 있어도 카드 밖으로 넘치지 않게 한다. */
+  overflow-wrap: anywhere;
 }
 
 .card h2 {
@@ -640,6 +642,28 @@ button:disabled:hover {
   font-size: var(--text-l);
   line-height: 1.7;
   white-space: pre-wrap;
+  /* 띄어쓰기 없이 아주 긴 이름·URL이 와도 카드를 넘지 않게 한다. */
+  overflow-wrap: anywhere;
+}
+
+/* 문장이 하나씩 덧붙는 동안 카드 높이가 크게 흔들리지 않게 두세 줄 높이를 잡아 둔다. */
+.answer__text--streaming {
+  min-height: calc(var(--text-l) * 1.7 * 3);
+}
+
+.answer__pending {
+  color: var(--muted);
+}
+
+.stream-pending {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3, 12px);
+  min-height: 4.5rem;
+}
+
+.stream-pending p {
+  margin: 0;
 }
 
 .notices {
@@ -965,6 +989,7 @@ button:disabled:hover {
 .question-chip__question {
   flex: 1;
   min-width: 0;
+  overflow-wrap: anywhere;
   color: var(--muted);
   font-size: var(--text-s);
 }

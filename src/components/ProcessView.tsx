@@ -5,11 +5,13 @@ import { Stepper } from "./Stepper";
 
 const STAGE_LABEL: Record<TraceStage, string> = {
   route: "라우팅",
+  llm_parse: "AI 해석",
   query: "조회",
   compute: "연산",
   gate: "게이트",
   verify: "검증",
   generate: "생성",
+  suggest: "후속 질문",
   render: "렌더",
 };
 
@@ -76,7 +78,7 @@ export function ProcessView({ response }: { response: SearchResponse }) {
               <div className="raw-steps__line">
                 <span>
                   <span className="raw-steps__stage">
-                    {STAGE_LABEL[step.stage]}
+                    {STAGE_LABEL[step.stage] ?? step.stage}
                   </span>
                   {step.detail && (
                     <span className="muted"> · {step.detail}</span>

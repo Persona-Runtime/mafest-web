@@ -9,11 +9,22 @@ import {
   meta,
   noResult,
   notCollected,
+  unread,
   PRODUCT_FIXTURES,
   refused,
+  STREAM_FIXTURES,
+  streamEventsFor,
   unavailable,
 } from "./fixtures";
-import { ApiError, type SearchApi, type SearchResponse } from "./types";
+import {
+  ApiError,
+  StreamCutError,
+  StreamUnavailableError,
+  type SearchApi,
+  type SearchResponse,
+  type StreamEvent,
+} from "./types";
+import { validateStreamEvent } from "./validate";
 
 /**
  * 로컬 개발용 mock API. `VITE_API_MODE=mock`을 명시했을 때만 쓴다(client.ts).
@@ -24,11 +35,18 @@ import { ApiError, type SearchApi, type SearchResponse } from "./types";
  *   "오류"                    → outcome error
  *   "모델"                    → generated_by fallback
  *   그 밖은 아래 RULES 순서
+ *
+ * 스트림(searchStream)은 같은 규칙으로 고른 응답을 이벤트로 나눠 시간차로 흘린다. 질문 낱말로 장애를 고른다.
+ *   "전체 시한"               → 결과 뒤 error(timeout) 이벤트
+ *   "계속 끊김"               → 문장 하나를 보낸 뒤 매번 연결이 끊김(재시도해도 끊김)
+ *   "끊김"                    → 첫 요청만 문장 하나를 보낸 뒤 끊김, 재시도는 정상
+ *   "스트림 불가"             → 스트림을 쓸 수 없어 일반 검색으로 대신함
  */
 const RULES: Array<[RegExp, SearchResponse]> = [
   [/추천|오를|전망|사도 돼/, refused],
   [/편입|구성종목/, unavailable],
-  [/거래량|호가|시세/, notCollected],
+  [/과거|추이|이력|호가|시세/, notCollected],
+  [/공부 중인데/, unread],
   [/좋은|괜찮은/, ambiguous],
   [/0\.01%|50%/, noResult],
   [/몇 ?개/, count],
@@ -58,22 +76,87 @@ function wait(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
+/** 열기 전에 나는 HTTP 오류(질문 낱말로 고른다). search와 searchStream이 같이 쓴다. */
+async function failBeforeOpen(
+  question: string,
+  delayScale: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (/429/.test(question)) {
+    await wait(150 * delayScale, signal);
+    throw new ApiError(429, "rate_limited", 12);
+  }
+  if (/504/.test(question)) {
+    await wait(600 * delayScale, signal);
+    throw new ApiError(504, "timeout");
+  }
+  if (/500/.test(question)) {
+    await wait(150 * delayScale, signal);
+    throw new ApiError(500, "http_500");
+  }
+}
+
+/** 이벤트 앞에서 기다리는 시간(ms). 해석 → 표 → 문장 순서로 느껴지게 둔다. */
+const EVENT_DELAY_MS: Record<string, number> = {
+  interpretation: 250,
+  results: 350,
+  answer_delta: 600,
+  answer_done: 150,
+  suggestions: 200,
+  done: 50,
+};
+
 /** 테스트에서 지연을 0으로 둔다. */
 export function createMockApi(delayScale = 1): SearchApi {
+  /** 질문별로 "첫 요청만 끊김"을 한 번 보냈는지. */
+  const cutOnce = new Set<string>();
+
+  async function* stream(
+    question: string,
+    signal?: AbortSignal,
+  ): AsyncGenerator<StreamEvent, void, undefined> {
+    await failBeforeOpen(question, delayScale, signal);
+    if (/스트림 불가/.test(question)) throw new StreamUnavailableError();
+    const events = /전체 시한/.test(question)
+      ? STREAM_FIXTURES.requestTimeout.map((item) =>
+          item.event === "start"
+            ? { ...item, data: { ...(item.data as object), question } }
+            : item,
+        )
+      : streamEventsFor({ ...pick(question), question });
+    const alwaysCut = /계속 끊김/.test(question);
+    const firstCut = /끊김/.test(question) && !cutOnce.has(question);
+    let mappings: unknown = [];
+    let deltas = 0;
+    for (const item of structuredClone(events)) {
+      await wait((EVENT_DELAY_MS[item.event] ?? 0) * delayScale, signal);
+      const event = validateStreamEvent(item.event, item.data, mappings);
+      if (event.event === "interpretation")
+        mappings = event.data.interpretation.mappings;
+      // 실서버 클라이언트(api.ts)와 같게 error 이벤트는 오류로 던진다.
+      if (event.event === "error") {
+        throw new ApiError(
+          event.data.code === "timeout" ? 504 : 500,
+          event.data.code,
+          null,
+          event.data.request_id,
+        );
+      }
+      yield event;
+      if (event.event === "answer_delta") deltas += 1;
+      // 문장 하나를 보낸 뒤 연결이 끊긴다. 서버가 done·error 없이 닫은 경우와 같다.
+      if ((alwaysCut || firstCut) && deltas === 1) {
+        cutOnce.add(question);
+        throw new StreamCutError();
+      }
+    }
+  }
+
   return {
+    searchStream: (question, signal) => stream(question, signal),
+
     async search(question, signal) {
-      if (/429/.test(question)) {
-        await wait(150 * delayScale, signal);
-        throw new ApiError(429, "rate_limited", 12);
-      }
-      if (/504/.test(question)) {
-        await wait(600 * delayScale, signal);
-        throw new ApiError(504, "timeout");
-      }
-      if (/500/.test(question)) {
-        await wait(150 * delayScale, signal);
-        throw new ApiError(500, "http_500");
-      }
+      await failBeforeOpen(question, delayScale, signal);
       const fixture = pick(question);
       // 생성 경로는 수 초, 게이트 경로는 짧다. 실제 체감과 비슷하게 둔다.
       const generated = fixture.answer.generated_by === "llm";

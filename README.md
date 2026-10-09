@@ -16,8 +16,12 @@
 | `/about`                 | 동작 방식, 데이터 범위, 한계, 기록 정책, 비공식 고지                    |
 
 - 결과 화면은 ① 질문 해석(질문 표현에 번호 밑줄 → "표현 → 대상·조건·정렬·개수 → 사전 일치·패턴·규칙·기본값" 목록, 해석 결과 문장, 상품군 상태) ② 어떻게 답했나(해석→조회→판정→생성→검증 5단계, 판정 설명, 단계별 시간 막대, 접힌 세부 기록) ③ 답변·표 순서다. 답변 속 인용 상품명·숫자는 표의 그 행·칸과 이어진다. 좁은 화면은 ①을 늘 보이고 ②·③을 [결과 | 처리 과정]으로 전환한다. 규칙은 `src/lib/explain.ts` 한곳에 있다.
+- 검색은 `POST /v1/search/stream`(SSE)이 기본이고, 화면은 도착 순서대로 바뀐다: 해석 카드 → 결과 표·그래프 → 답변 문장이 하나씩 덧붙음(`aria-live="polite"`) → 최종 답으로 덮음 → 후속 질문 칩 → `done`의 완성 응답으로 화면 전체 확정(답변↔표 인용 연결 포함). 이벤트는 도착하는 대로 기존 `validateStreamEvent`·`validateStream`으로 검사하고, 계약과 어긋난 것은 그리지 않고 "응답 형식 오류" 화면으로 간다. 구현은 `src/lib/api.ts`(호출·검사), `src/lib/sse.ts`(SSE 파서), `src/lib/searchStream.ts`(재시도·대체 경로), `src/lib/useSearchRun.ts`(화면 상태).
+- 스트림을 열기 전에 쓸 수 없다고 판명되면(응답이 `text/event-stream`이 아님, 열기 전 연결 실패, 404·5xx) `POST /v1/search`로 한 번 대신한다. 422·429·504는 대신하지 않고 기존 오류 화면 규칙을 따른다.
+- 스트림이 `done`·`error` 없이 끊기면 1초 뒤 새 요청으로 **한 번만** 다시 받는다. 그동안 답 문장 영역은 비워 잘린 답과 새 답이 섞이지 않게 하고(표는 그대로), 두 번째도 끊기면 연결 실패 화면을 낸다. `error` 이벤트와 계약 위반은 다시 요청하지 않는다. 새 질문이나 페이지 이탈은 진행 중인 스트림과 대기 중인 재시도를 취소한다.
+- ping을 포함해 새 바이트가 30초 동안 없으면 연결이 끊긴 것으로 보고 같은 1회 재시도 규칙을 적용한다. `done`·`error`를 받으면 서버가 연결을 닫을 때까지 기다리지 않고 본문 reader를 즉시 취소한다.
 - 상태는 URL에만 있다. 새로고침·뒤로가기·링크 공유가 그대로 된다.
-- outcome 8종(`answered` `caveat` `no_result` `not_collected` `unavailable` `ambiguous` `refused` `error`)과 `generated_by=fallback`(모델 꺼짐 배너), HTTP 429(Retry-After 카운트다운)·504·5xx·연결 실패를 각각 다른 화면으로 그린다.
+- outcome 9종(`answered` `caveat` `no_result` `not_collected` `unread` `unavailable` `ambiguous` `refused` `error`)과 `generated_by=fallback`(모델 꺼짐 배너), HTTP 429(Retry-After 카운트다운)·504·5xx·연결 실패를 각각 다른 화면으로 그린다.
 - 숫자는 오른쪽 정렬·고정폭. 수익률은 색 없이 부호로만.
 - 기준일은 상품군마다 다르다. 같으면 하나로, 다르면 상품군별로 나열한다.
 - 상품 상세에 "이전/다음 상품"이나 상품군 전체 목록은 두지 않는다(대량 수집 억제).
@@ -33,21 +37,32 @@ npm ci
 VITE_API_MODE=mock npm run dev
 ```
 
-mock 모드는 질문 낱말로 픽스처를 고른다(`src/lib/mockApi.ts`).
+mock 모드는 질문 낱말로 픽스처를 고른다(`src/lib/mockApi.ts`). 스트림도 같은 규칙으로 고른 응답을 이벤트로 나눠 시간차로 흘린다.
 
-| 질문에 들어간 말         | 화면                |
-| ------------------------ | ------------------- |
-| (그 밖)                  | answered            |
-| 퇴직연금, ETN            | caveat              |
-| 0.01%, 50%               | no_result           |
-| 거래량, 호가, 시세       | not_collected       |
-| 편입, 구성종목           | unavailable         |
-| 좋은, 괜찮은             | ambiguous           |
-| 추천, 오를, 전망         | refused             |
-| 오류                     | error               |
-| 모델                     | answered + fallback |
-| 몇 개 / 채권·AA·표면금리 | 개수 / 채권 결과    |
-| 429 / 504 / 500          | HTTP 실패           |
+| 질문에 들어간 말             | 화면                |
+| ---------------------------- | ------------------- |
+| (그 밖)                      | answered            |
+| 퇴직연금, ETN                | caveat              |
+| 0.01%, 50%                   | no_result           |
+| 공부 중인데                  | unread              |
+| 과거, 추이, 이력, 호가, 시세 | not_collected       |
+| 편입, 구성종목               | unavailable         |
+| 좋은, 괜찮은                 | ambiguous           |
+| 추천, 오를, 전망             | refused             |
+| 오류                         | error               |
+| 모델                         | answered + fallback |
+| 몇 개 / 채권·AA·표면금리     | 개수 / 채권 결과    |
+| 429 / 504 / 500              | HTTP 실패           |
+
+스트림 mock은 아래 말로 장애를 고른다.
+
+| 질문에 들어간 말 | 스트림에서 일어나는 일                                        |
+| ---------------- | ------------------------------------------------------------- |
+| 모델             | 답 생성 시한 초과: 문장 없이 `generated_by=fallback`으로 끝남 |
+| 전체 시한        | 표를 보낸 뒤 `error`(timeout) 이벤트 → 504 화면               |
+| 끊김             | 첫 요청만 문장 하나 뒤 끊김 → 1초 뒤 재시도 → 정상            |
+| 계속 끊김        | 매번 끊김 → 재시도도 끊겨 연결 실패 화면                      |
+| 스트림 불가      | 스트림을 쓸 수 없어 `POST /v1/search`로 대신함                |
 
 실제 API를 붙일 때는 로컬 API 주소를 준다(브라우저에는 전송되지 않는다).
 
@@ -71,11 +86,12 @@ npm run container:verify   # Docker 필요. linux/amd64 이미지를 빌드해 �
 
 테스트 3층:
 
-| 층        | 파일                                              | 보는 것                                                         |
-| --------- | ------------------------------------------------- | --------------------------------------------------------------- |
-| 화면      | `src/App.test.tsx`                                | 합성 API로 화면 로직(outcome 8종, 상세, 429, URL)               |
-| API 계약  | `src/lib/validate.test.ts`, `src/lib/api.test.ts` | 픽스처가 계약을 지키는지, 요청 형태와 실패 처리                 |
-| 실제 HTTP | `src/lib/api.live.test.ts`                        | `MAFEST_LIVE_API=<주소>`일 때만. 예시 칩 6개의 기대 outcome(W6) |
+| 층        | 파일                                                                              | 보는 것                                                         |
+| --------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| 화면      | `src/App.test.tsx`                                                                | 합성 API로 화면 로직(outcome 9종, 상세, 429, URL)               |
+| 스트림    | `src/lib/stream.test.ts`, `src/App.stream*.test.tsx`, `src/specialChars.test.tsx` | SSE 파서, 스트림 호출·재시도·대체, 표시 순서, 취소, 특수문자    |
+| API 계약  | `src/lib/validate.test.ts`, `src/lib/api.test.ts`                                 | 픽스처가 계약을 지키는지, 요청 형태와 실패 처리                 |
+| 실제 HTTP | `src/lib/api.live.test.ts`                                                        | `MAFEST_LIVE_API=<주소>`일 때만. 예시 칩 6개의 기대 outcome(W6) |
 
 ## API 계약
 
