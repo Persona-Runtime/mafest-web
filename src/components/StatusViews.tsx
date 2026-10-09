@@ -86,7 +86,7 @@ function describe(error: ApiError): { title: string; body: string } {
   if (error.status === 504)
     return {
       title: "시간이 초과됐습니다",
-      body: "30초 안에 답을 만들지 못했습니다. 조건을 줄여 다시 물어보세요.",
+      body: "답을 만들지 못했습니다. 조건을 줄여 다시 물어보세요.",
     };
   if (error.status === 422)
     return {

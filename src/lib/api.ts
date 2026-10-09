@@ -172,7 +172,6 @@ async function* openStream(
 
   const received: Array<{ event: unknown; data: unknown }> = [];
   let mappings: unknown = [];
-  let done = false;
   try {
     for await (const raw of parseSse(response.body)) {
       received.push(raw);
@@ -188,10 +187,13 @@ async function* openStream(
           event.data.request_id,
         );
       }
+      if (event.event === "done") {
+        yield event;
+        // 서버가 소켓을 늦게 닫아도 화면 확정을 기다리지 않는다. return으로 안쪽
+        // parseSse 반복을 닫으면 그 finally가 reader.cancel()을 수행한다.
+        return;
+      }
       yield event;
-      // done 뒤에도 본문을 끝까지 읽는다. 서버가 done 뒤에 이벤트를 더 보내면 계약 위반(순서 검사)이고,
-      // 연결이 닫혔는지는 호출한 쪽이 반복이 끝나는 것으로 안다.
-      if (event.event === "done") done = true;
     }
   } catch (error) {
     if (error instanceof ContractError) {
@@ -202,7 +204,7 @@ async function* openStream(
     // 본문을 읽던 중 연결이 끊김. 끊긴 이벤트는 파서가 이미 버렸다.
     throw new StreamCutError();
   }
-  if (!done) throw new StreamCutError();
+  throw new StreamCutError();
 }
 
 export const httpApi: SearchApi = {

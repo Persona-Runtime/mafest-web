@@ -133,8 +133,7 @@ function delay(ms: number, signal: AbortSignal): Promise<void> {
 
 /**
  * 스트림 한 번을 끝까지 읽는다. done 의 완성 응답을 돌려주고, done 없이 끝나면 StreamCutError 가 난다.
- * done 을 받은 뒤에도 연결이 닫힐 때까지 읽는다 — done 뒤에 이벤트가 오면 계약 위반이고, 그때는 이미 받은
- * 응답을 그리지 않고 오류로 간다(이벤트 검사는 api 쪽 이터레이터가 한다).
+ * API 이터레이터는 done을 검증한 직후 reader를 취소하므로, 서버가 연결을 늦게 닫아도 여기서는 기다리지 않는다.
  */
 async function consume(
   events: AsyncIterable<StreamEvent>,

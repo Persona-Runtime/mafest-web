@@ -57,7 +57,6 @@ afterEach(() => {
 
 const orderBroken: [string, StreamFixtureEvent[]][] = [
   ["does not start with start", normal.slice(1)],
-  ["has an event after done", [...normal, normal[normal.length - 1]]],
   [
     "sends answer_delta before results",
     [normal[0], normal[1], normal[3], normal[2], ...normal.slice(4)],

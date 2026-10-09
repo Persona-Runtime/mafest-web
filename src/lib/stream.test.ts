@@ -11,7 +11,7 @@ import {
   streamPhase,
   type StreamView,
 } from "./searchStream";
-import { parseSse } from "./sse";
+import { parseSse, STREAM_IDLE_TIMEOUT_MS } from "./sse";
 import {
   ApiError,
   StreamCutError,
@@ -68,6 +68,28 @@ function sseResponse(chunks: Uint8Array[], failAfter = false): Response {
     status: 200,
     headers: { "Content-Type": "text/event-stream" },
   });
+}
+
+/** 청크를 직접 밀어 넣고 EOF는 보내지 않는 본문. 유휴 감시와 terminal 취소를 확인할 때 쓴다. */
+function controlledSseResponse() {
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  const cancel = vi.fn();
+  const stream = new ReadableStream<Uint8Array>({
+    start(next) {
+      controller = next;
+    },
+    cancel,
+  });
+  return {
+    response: new Response(stream, {
+      status: 200,
+      headers: { "Content-Type": "text/event-stream" },
+    }),
+    push(text: string) {
+      controller.enqueue(encoder.encode(text));
+    },
+    cancel,
+  };
 }
 
 async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
@@ -178,6 +200,63 @@ describe("httpApi.searchStream", () => {
     expect(events.map((e) => e.event)).toEqual(normal.map((e) => e.event));
   });
 
+  test("cancels the reader immediately after done without waiting for EOF", async () => {
+    const stream = controlledSseResponse();
+    stubFetch(stream.response);
+    stream.push(new TextDecoder().decode(encode(normal)));
+
+    const events = await collect(httpApi.searchStream("q"));
+
+    expect(events.map((event) => event.event)).toEqual(
+      normal.map((event) => event.event),
+    );
+    expect(stream.cancel).toHaveBeenCalledTimes(1);
+  });
+
+  test("cancels the reader immediately after error without waiting for EOF", async () => {
+    const stream = controlledSseResponse();
+    const error = {
+      event: "error",
+      data: {
+        code: "timeout",
+        message: "실패했습니다.",
+        request_id: "r-err",
+      },
+    };
+    stubFetch(stream.response);
+    stream.push(
+      new TextDecoder().decode(encode([...normal.slice(0, 3), error])),
+    );
+
+    await expect(collect(httpApi.searchStream("q"))).rejects.toMatchObject({
+      status: 504,
+      code: "timeout",
+    });
+    expect(stream.cancel).toHaveBeenCalledTimes(1);
+  });
+
+  test("treats thirty seconds without bytes as a cut and ping resets the idle timer", async () => {
+    vi.useFakeTimers();
+    const stream = controlledSseResponse();
+    stubFetch(stream.response);
+    const settled = collect(httpApi.searchStream("q")).catch(
+      (error: unknown) => error,
+    );
+
+    await vi.advanceTimersByTimeAsync(STREAM_IDLE_TIMEOUT_MS - 1);
+    expect(stream.cancel).not.toHaveBeenCalled();
+    stream.push(": ping\n\n");
+    await vi.advanceTimersByTimeAsync(0);
+
+    await vi.advanceTimersByTimeAsync(STREAM_IDLE_TIMEOUT_MS - 1);
+    expect(stream.cancel).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(await settled).toBeInstanceOf(StreamCutError);
+    expect(stream.cancel).toHaveBeenCalledTimes(1);
+    expect(STREAM_IDLE_TIMEOUT_MS).toBe(30_000);
+  });
+
   test("ignores ping comments between events", async () => {
     stubFetch(sseResponse([encode(normal)]));
     expect(await collect(httpApi.searchStream("q"))).toHaveLength(
@@ -285,11 +364,6 @@ describe("httpApi.searchStream", () => {
   const brokenOrders: [string, StreamFixtureEvent[], string[]][] = [
     ["does not start with start", normal.slice(1), []],
     [
-      "has an event after done",
-      [...normal, normal[normal.length - 1]],
-      normal.map((e) => e.event),
-    ],
-    [
       "sends answer_delta before results",
       [normal[0], normal[1], normal[3], normal[2], ...normal.slice(4)],
       ["start", "interpretation"],
@@ -374,7 +448,7 @@ describe("stream view", () => {
     expect(restarted.results).not.toBeNull();
   });
 
-  test("provisional response has no trace and keeps product nodes uncited", () => {
+  test("results keep rows and product nodes uncited until done confirms them", () => {
     const normal = STREAM_FIXTURES.answered as unknown as StreamEvent[];
     let view = emptyView();
     expect(provisionalResponse(view, "q")).toBeNull();
@@ -386,6 +460,20 @@ describe("stream view", () => {
       provisional.interpretation.graph.nodes
         .filter((node) => node.kind === "product")
         .every((node) => !node.cited),
+    ).toBe(true);
+    expect(
+      provisional.results.every((group) =>
+        group.rows.every((row) => !row.cited),
+      ),
+    ).toBe(true);
+
+    const finished = normal.at(-1);
+    expect(finished?.event).toBe("done");
+    if (finished?.event !== "done") throw new Error("done fixture missing");
+    expect(
+      finished.data.response.results.some((group) =>
+        group.rows.some((row) => row.cited),
+      ),
     ).toBe(true);
   });
 });
