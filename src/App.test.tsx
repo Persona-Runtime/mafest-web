@@ -420,7 +420,7 @@ describe("결과 — outcome 9종", () => {
         name: "수집하지 않은 데이터입니다",
       }),
     ).toBeVisible();
-    expect(screen.getByText(/없는 항목: 거래량/)).toBeVisible();
+    expect(screen.getByText(/없는 항목: 과거 추이/)).toBeVisible();
   });
 
   test("unavailable: 일시 장애 문구와 다시 시도(수집 범위 밖과 구분)", async () => {
@@ -510,6 +510,10 @@ describe("결과 — HTTP 실패와 로딩", () => {
       path: searchPath("q"),
     });
     expect(await screen.findByText("시간이 초과됐습니다")).toBeVisible();
+    expect(
+      screen.getByText("답을 만들지 못했습니다. 조건을 줄여 다시 물어보세요."),
+    ).toBeVisible();
+    expect(screen.queryByText(/30초/)).toBeNull();
   });
 
   test("로딩 중에는 경과 초를 보여준다", async () => {

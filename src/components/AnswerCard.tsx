@@ -23,7 +23,14 @@ export function BaseDates({ response }: { response: SearchResponse }) {
  * 답변 문장. 서버 문장은 텍스트 그대로 그린다(Markdown·HTML 해석 안 함).
  * 문장을 누가 만들었는지(LLM/정형/조회만) 배지로 숨기지 않고 보여준다.
  */
-export function AnswerCard({ response }: { response: SearchResponse }) {
+export function AnswerCard({
+  response,
+  sentences,
+}: {
+  response: SearchResponse;
+  /** 스트리밍 중에 지금까지 받은 문장. 없으면 완성된 답이다. */
+  sentences?: string[];
+}) {
   const { answer, outcome } = response;
   return (
     <section className="answer card" aria-labelledby="answer-heading">
@@ -44,7 +51,11 @@ export function AnswerCard({ response }: { response: SearchResponse }) {
           <BaseDates response={response} />
         </span>
       </header>
-      <AnswerText response={response} />
+      {sentences ? (
+        <StreamingText sentences={sentences} />
+      ) : (
+        <AnswerText response={response} />
+      )}
       {answer.notices.length > 0 && (
         <ul
           className={`notices ${outcome === "caveat" ? "notices--warn" : ""}`}
@@ -59,6 +70,31 @@ export function AnswerCard({ response }: { response: SearchResponse }) {
         </ul>
       )}
     </section>
+  );
+}
+
+/**
+ * 스트리밍 중 답변 문장. 문장마다 노드를 하나씩 덧붙여서, 스크린 리더가 새 문장만 읽게 한다(aria-live=polite).
+ * 아직 문장이 없으면 자리를 잡는 안내 한 줄을 둔다. 인용 연결은 done 에서 cited 가 확정된 뒤에 생긴다.
+ */
+function StreamingText({ sentences }: { sentences: string[] }) {
+  return (
+    <p
+      className="answer__text answer__text--streaming"
+      aria-live="polite"
+      aria-atomic="false"
+      aria-busy="true"
+    >
+      {sentences.length === 0 ? (
+        <span className="answer__pending">답변 문장을 만들고 있습니다.</span>
+      ) : (
+        sentences.map((sentence, index) => (
+          <span key={index} className="answer__sentence">
+            {sentence}{" "}
+          </span>
+        ))
+      )}
+    </p>
   );
 }
 

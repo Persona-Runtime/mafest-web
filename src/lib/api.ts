@@ -1,10 +1,20 @@
-import { ApiError, type ErrorBody, type SearchApi } from "./types";
+import { parseSse } from "./sse";
+import {
+  ApiError,
+  StreamCutError,
+  StreamUnavailableError,
+  type ErrorBody,
+  type SearchApi,
+  type StreamEvent,
+} from "./types";
 import {
   ContractError,
   validateErrorBody,
   validateMeta,
   validateProductDetail,
   validateSearchResponse,
+  validateStream,
+  validateStreamEvent,
 } from "./validate";
 
 /**
@@ -104,7 +114,104 @@ function checked<T>(validate: (input: unknown) => T, body: unknown): T {
   }
 }
 
+function isAbort(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
+}
+
+/**
+ * 지금까지 받은 이벤트의 순서를 기존 validateStream으로 본다. 진행 중인 스트림은 아직 done·error로 끝나지
+ * 않아 마지막 검사(경로 "stream")만 실패하는데, 그것은 정상이므로 넘긴다. 그 밖의 경로는 계약 위반이다.
+ */
+function assertOrder(
+  received: ReadonlyArray<{ event: unknown; data: unknown }>,
+) {
+  try {
+    validateStream(received);
+  } catch (error) {
+    if (error instanceof ContractError && error.path === "stream") return;
+    throw error;
+  }
+}
+
+/** 스트림을 열기 전 응답이 "스트림을 못 쓴다"는 뜻인가. 422·429·504는 화면 오류 규칙을 그대로 따른다. */
+function streamUnavailable(status: number): boolean {
+  return status === 404 || (status >= 500 && status !== 504);
+}
+
+async function* openStream(
+  question: string,
+  signal: AbortSignal | undefined,
+): AsyncGenerator<StreamEvent, void, undefined> {
+  let response: Response;
+  try {
+    response = await fetch("/v1/search/stream", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+      },
+      body: JSON.stringify({ question }),
+      signal,
+    });
+  } catch (error) {
+    if (isAbort(error)) throw error;
+    // 열기 전 연결 실패는 비스트림 경로가 같은 서버에 한 번 더 물어 본다.
+    throw new StreamUnavailableError();
+  }
+  if (!response.ok) {
+    const body = await readJson(response);
+    if (streamUnavailable(response.status)) throw new StreamUnavailableError();
+    fail(response, body);
+  }
+  const contentType = response.headers.get("Content-Type") ?? "";
+  if (
+    !contentType.toLowerCase().includes("text/event-stream") ||
+    !response.body
+  )
+    throw new StreamUnavailableError();
+
+  const received: Array<{ event: unknown; data: unknown }> = [];
+  let mappings: unknown = [];
+  try {
+    for await (const raw of parseSse(response.body)) {
+      received.push(raw);
+      assertOrder(received);
+      const event = validateStreamEvent(raw.event, raw.data, mappings);
+      if (event.event === "interpretation")
+        mappings = event.data.interpretation.mappings;
+      if (event.event === "error") {
+        throw new ApiError(
+          event.data.code === "timeout" ? 504 : 500,
+          event.data.code,
+          null,
+          event.data.request_id,
+        );
+      }
+      if (event.event === "done") {
+        yield event;
+        // 서버가 소켓을 늦게 닫아도 화면 확정을 기다리지 않는다. return으로 안쪽
+        // parseSse 반복을 닫으면 그 finally가 reader.cancel()을 수행한다.
+        return;
+      }
+      yield event;
+    }
+  } catch (error) {
+    if (error instanceof ContractError) {
+      console.error(error.message);
+      throw new ApiError(200, "invalid_response");
+    }
+    if (error instanceof ApiError || isAbort(error)) throw error;
+    // 본문을 읽던 중 연결이 끊김. 끊긴 이벤트는 파서가 이미 버렸다.
+    throw new StreamCutError();
+  }
+  throw new StreamCutError();
+}
+
 export const httpApi: SearchApi = {
+  searchStream(question, signal) {
+    return openStream(question, signal);
+  },
+
   async search(question, signal) {
     const { response, body } = await request("/v1/search", {
       method: "POST",

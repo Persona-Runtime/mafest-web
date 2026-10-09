@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { CiteFocusContext, MappingFocusContext } from "../lib/citeFocus";
 import type { CiteTarget } from "../lib/explain";
+import type { StreamPhase } from "../lib/searchStream";
 import type { ResultRow, SearchResponse } from "../lib/types";
 import { TABLE_QUERY, useMediaQuery } from "../lib/useMediaQuery";
 import { AnswerCard, BaseDates } from "./AnswerCard";
@@ -68,11 +69,14 @@ const VIEW_LABEL: Record<View, string> = {
  */
 export function OutcomeView({
   response,
+  stream,
   selectedId,
   onOpen,
   onRetry,
 }: {
   response: SearchResponse;
+  /** 스트리밍 중일 때만. phase 가 undefined 면 최종 답까지 받은 것이다(후속 질문·done 대기). */
+  stream?: { phase: StreamPhase | undefined; sentences: string[] };
   selectedId: string | null;
   onOpen?: (domain: string, row: ResultRow) => void;
   onRetry: () => void;
@@ -100,6 +104,7 @@ export function OutcomeView({
   const body = (
     <OutcomeBody
       response={response}
+      stream={stream}
       selectedId={selectedId}
       onOpen={onOpen}
       onRetry={onRetry}
@@ -157,14 +162,26 @@ export function OutcomeView({
   );
 }
 
+/** 스트림에서 아직 못 받은 본문 자리. 화면이 흔들리지 않게 한 줄 높이를 잡는다. */
+function StreamPending({ text }: { text: string }) {
+  return (
+    <div className="card stream-pending" role="status">
+      <span className="spinner" aria-hidden="true" />
+      <p className="muted">{text}</p>
+    </div>
+  );
+}
+
 /** outcome별 본문. 상태마다 무엇을 보여주고 무엇을 숨기는지가 여기 한곳에 있다. */
 function OutcomeBody({
   response,
+  stream,
   selectedId,
   onOpen,
   onRetry,
 }: {
   response: SearchResponse;
+  stream?: { phase: StreamPhase | undefined; sentences: string[] };
   selectedId: string | null;
   onOpen?: (domain: string, row: ResultRow) => void;
   onRetry: () => void;
@@ -182,13 +199,32 @@ function OutcomeBody({
     />
   ));
 
+  // 표가 오기 전, 또는 답 문장 없이 최종 답을 기다리는 상태는 자리만 잡는다.
+  if (stream?.phase === "results")
+    return <StreamPending text="조회하고 있습니다." />;
+  if (
+    stream?.phase === "answer" &&
+    outcome !== "answered" &&
+    outcome !== "caveat"
+  )
+    return <StreamPending text="답변을 정리하고 있습니다." />;
+
   switch (outcome) {
     case "answered":
     case "caveat":
       return (
         <>
-          <AnswerCard response={response} />
+          <AnswerCard
+            response={response}
+            sentences={
+              stream?.phase === "answer" ? stream.sentences : undefined
+            }
+          />
           {groups}
+          <QuestionChips
+            title="이어서 물어볼 질문"
+            options={response.suggestions}
+          />
         </>
       );
     case "no_result":

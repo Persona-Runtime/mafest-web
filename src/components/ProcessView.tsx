@@ -78,7 +78,7 @@ export function ProcessView({ response }: { response: SearchResponse }) {
               <div className="raw-steps__line">
                 <span>
                   <span className="raw-steps__stage">
-                    {STAGE_LABEL[step.stage]}
+                    {STAGE_LABEL[step.stage] ?? step.stage}
                   </span>
                   {step.detail && (
                     <span className="muted"> · {step.detail}</span>

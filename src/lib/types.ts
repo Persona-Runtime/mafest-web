@@ -447,6 +447,33 @@ export interface SearchApi {
     signal?: AbortSignal,
   ): Promise<ProductDetail>;
   getMeta(signal?: AbortSignal): Promise<Meta>;
+  /**
+   * `POST /v1/search/stream`. 검사를 마친 이벤트를 도착 순서대로 낸다. 마지막은 `done`이다.
+   * - 스트림을 열기 전 오류(422·429·504 등)와 `error` 이벤트는 ApiError로 던진다.
+   * - 스트림을 쓸 수 없으면(비 SSE 응답·열기 전 연결 실패·5xx) StreamUnavailableError를 던진다.
+   * - 연결이 done·error 없이 끊기면 StreamCutError를 던진다.
+   * - 계약과 어긋난 이벤트·순서는 ApiError(200, "invalid_response")다. 그 이벤트는 내지 않는다.
+   */
+  searchStream(
+    question: string,
+    signal?: AbortSignal,
+  ): AsyncIterable<StreamEvent>;
+}
+
+/** 스트림을 열 수 없어 `POST /v1/search`로 대신해야 하는 경우. 이벤트가 하나도 나오기 전이다. */
+export class StreamUnavailableError extends Error {
+  constructor() {
+    super("stream_unavailable");
+    this.name = "StreamUnavailableError";
+  }
+}
+
+/** 이벤트를 받던 연결이 done·error 없이 끊김. 자동 재시도 1회의 대상이다. */
+export class StreamCutError extends Error {
+  constructor() {
+    super("stream_cut");
+    this.name = "StreamCutError";
+  }
 }
 
 /**

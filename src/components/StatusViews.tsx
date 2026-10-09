@@ -15,7 +15,13 @@ function useElapsed(startedAt: number): number {
 /**
  * 검색 중. 게이트 경로는 수십 ms, 생성 경로는 3~6초라 경과 초를 보여 기다릴 근거를 준다.
  */
-export function SearchLoading({ startedAt }: { startedAt: number }) {
+export function SearchLoading({
+  startedAt,
+  retrying = false,
+}: {
+  startedAt: number;
+  retrying?: boolean;
+}) {
   const elapsed = useElapsed(startedAt);
   return (
     <div className="loading card" role="status" aria-live="polite">
@@ -25,9 +31,11 @@ export function SearchLoading({ startedAt }: { startedAt: number }) {
           검색 중 <span className="num">· {elapsed}초</span>
         </p>
         <p className="muted">
-          {elapsed < 2
-            ? "질문을 해석하고 조회하고 있습니다."
-            : "답변 문장을 만들고 있습니다. 보통 3~6초 걸립니다."}
+          {retrying
+            ? "연결이 끊겨 다시 시도하고 있습니다."
+            : elapsed < 2
+              ? "질문을 해석하고 조회하고 있습니다."
+              : "답변 문장을 만들고 있습니다. 보통 3~6초 걸립니다."}
         </p>
       </div>
       <div className="skeleton" aria-hidden="true">
@@ -35,6 +43,17 @@ export function SearchLoading({ startedAt }: { startedAt: number }) {
         <span />
         <span />
       </div>
+    </div>
+  );
+}
+
+/** 스트림이 끊겨 한 번 다시 요청하는 동안 표 위에 띄우는 안내. 그동안 답 문장 영역은 비어 있다. */
+export function RetryingNotice() {
+  return (
+    <div className="banner banner--warn" role="status">
+      <Icon name="refresh" size={16} />
+      연결이 끊겨 다시 시도하고 있습니다. 표는 그대로이고 답변 문장을 새로
+      받습니다.
     </div>
   );
 }
@@ -67,7 +86,7 @@ function describe(error: ApiError): { title: string; body: string } {
   if (error.status === 504)
     return {
       title: "시간이 초과됐습니다",
-      body: "30초 안에 답을 만들지 못했습니다. 조건을 줄여 다시 물어보세요.",
+      body: "답을 만들지 못했습니다. 조건을 줄여 다시 물어보세요.",
     };
   if (error.status === 422)
     return {
