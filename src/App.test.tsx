@@ -48,6 +48,23 @@ describe("홈", () => {
     expect(currentLocation()).toBe(`/search?q=${meta.examples[0].question}`);
   });
 
+  test("meta가 예시 4개를 주면 4개만 표시하고 마지막 질문도 검색한다", async () => {
+    const examples = meta.examples.slice(0, 4);
+    const { user } = renderApp({
+      api: testApi({
+        getMeta: vi.fn().mockResolvedValue({ ...meta, examples }),
+      }),
+    });
+    const chip = await screen.findByRole("link", {
+      name: new RegExp(examples[3].question),
+    });
+    const section = screen.getByRole("region", { name: "이렇게 물어보세요" });
+
+    expect(within(section).getAllByRole("link")).toHaveLength(4);
+    await user.click(chip);
+    expect(currentLocation()).toBe(`/search?q=${examples[3].question}`);
+  });
+
   test("홈은 검색만: 상품군 표·하지 않는 것은 없다", async () => {
     renderApp();
     await screen.findByRole("link", {
