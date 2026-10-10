@@ -3,6 +3,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import {
   answered,
   caveat,
+  fallback,
   notCollected,
   STREAM_FIXTURES,
 } from "./lib/fixtures";
@@ -179,10 +180,53 @@ describe("stream display order", () => {
 });
 
 describe("stream outcomes on the default mock", () => {
-  test("generation deadline: fallback answer keeps the table and shows the banner", async () => {
+  test("대체 답변을 받으면 내부 배너 없이 최종 답변과 표를 유지", async () => {
     setViewport(1280);
     renderApp({ path: searchPath("모델 없이 순위 보여줘") });
-    expect(await screen.findByText(/답변 생성 모델이 꺼져 있어/)).toBeVisible();
+    expect(await screen.findByText(fallback.answer.text)).toBeVisible();
+    expect(screen.getByRole("table")).toBeVisible();
+    expect(screen.queryByText(/답변 생성 모델이 꺼져 있어/)).toBeNull();
+    expect(screen.queryByText("조회 결과만")).toBeNull();
+    expect(screen.queryByRole("region", { name: "어떻게 답했나" })).toBeNull();
+  });
+
+  test("answer_done과 done 뒤에도 대체 답변의 내부 상태가 나타나지 않음", async () => {
+    setViewport(1280);
+    const stream = controlledStream();
+    renderApp({
+      api: apiWith(stream.gen),
+      path: searchPath(answered.question),
+    });
+    await feed(stream.push, start, interpretation, results, delta0);
+    const table = screen.getByRole("table");
+    const response: SearchResponse = {
+      ...answered,
+      answer: {
+        ...answered.answer,
+        text: fallback.answer.text,
+        generated_by: "fallback",
+      },
+    };
+    const assertDisplay = () => {
+      expect(screen.getByText(fallback.answer.text)).toBeVisible();
+      expect(screen.getByRole("table")).toBe(table);
+      expect(screen.queryByText(/답변 생성 모델이 꺼져 있어/)).toBeNull();
+      expect(screen.queryByText("조회 결과만")).toBeNull();
+      expect(screen.queryByText("AI 생성 문장")).toBeNull();
+      expect(
+        screen.queryByRole("region", { name: "어떻게 답했나" }),
+      ).toBeNull();
+    };
+    await feed(stream.push, {
+      event: "answer_done",
+      data: { answer: response.answer },
+    });
+    assertDisplay();
+    await feed(stream.push, suggestions, { event: "done", data: { response } });
+    assertDisplay();
+    await act(async () => {
+      stream.push("end");
+    });
   });
 
   test("overall deadline: an error event after results shows the timeout screen", async () => {

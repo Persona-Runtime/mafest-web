@@ -22,7 +22,8 @@ const STAGE_LABEL: Record<TraceStage, string> = {
  */
 export function ProcessView({ response }: { response: SearchResponse }) {
   const { trace } = response;
-  if (!trace) return null;
+  // 대체 답변의 실패 사유는 API 진단에만 남기고 사용자 화면에는 노출하지 않는다.
+  if (!trace || response.answer.generated_by === "fallback") return null;
   const pipeline = buildPipeline(response);
   const segments = timingSegments(pipeline);
   const meta = [

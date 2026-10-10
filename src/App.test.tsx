@@ -471,18 +471,50 @@ describe("결과 — outcome 9종", () => {
     expect(alert).toHaveTextContent(errorOutcome.request_id);
   });
 
-  test("generated_by=fallback: 모델 꺼짐 배너, 표는 정상", async () => {
-    renderApp({ api: respondWith(fallback), path: searchPath("q") });
-    expect(
-      await screen.findByText(
-        "답변 생성 모델이 꺼져 있어 조회 결과만 보여줍니다.",
-      ),
-    ).toBeVisible();
-    expect(screen.getByText("조회 결과만")).toBeVisible();
-    expect(
-      screen.getByRole("link", { name: /SAMPLE 코스피200/ }),
-    ).toBeVisible();
-  });
+  test.each([390, 1280])(
+    "fallback: %ipx에서 내부 상태를 숨기고 답변·결과·고지를 유지",
+    async (width) => {
+      setViewport(width);
+      const response = structuredClone(fallback);
+      response.outcome = "caveat";
+      response.answer.notices = [
+        { code: "PARTIAL_AXIS", text: "값이 확인된 상품만 포함했습니다." },
+      ];
+      response.trace!.steps.push({
+        stage: "verify",
+        label: "검증",
+        ms: 1,
+        detail: "문장 0개 통과 · 탈락 1개 (NUMBER_OUTSIDE_SLOT)",
+        query: null,
+      });
+      renderApp({ api: respondWith(response), path: searchPath("q") });
+      expect(await screen.findByText(response.answer.text)).toBeVisible();
+      expect(screen.queryByText(/답변 생성 모델이 꺼져 있어/)).toBeNull();
+      expect(screen.queryByText("조회 결과만")).toBeNull();
+      expect(screen.queryByText("AI 생성 문장")).toBeNull();
+      expect(screen.queryByText(/NUMBER_OUTSIDE_SLOT/)).toBeNull();
+      expect(screen.queryByText(/모델 응답 없음/)).toBeNull();
+      expect(
+        screen.queryByRole("region", { name: "어떻게 답했나" }),
+      ).toBeNull();
+      expect(screen.queryByRole("tab", { name: "처리 과정" })).toBeNull();
+      expect(
+        screen.getByText("값이 확인된 상품만 포함했습니다."),
+      ).toBeVisible();
+      expect(screen.getAllByText(/기준일/).length).toBeGreaterThan(0);
+      expect(screen.getByText("주의", { exact: true })).toBeVisible();
+      expect(
+        screen.getByRole("link", {
+          name: width >= 720 ? "SAMPLE 코스피200" : /^SAMPLE 코스피200 순자산/,
+        }),
+      ).toBeVisible();
+      // 표시 정책만 바뀌며 원래 응답의 생성 방식과 실패 기록은 그대로 남는다.
+      expect(response.answer.generated_by).toBe("fallback");
+      expect(response.trace!.steps.at(-1)?.detail).toContain(
+        "NUMBER_OUTSIDE_SLOT",
+      );
+    },
+  );
 });
 
 describe("결과 — HTTP 실패와 로딩", () => {

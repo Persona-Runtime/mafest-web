@@ -65,7 +65,6 @@ const VIEW_LABEL: Record<View, string> = {
  *   ① 질문 해석(대상·조건·정렬) ② 탐색 그래프(온톨로지 → 집합 → 상품)
  *   ③ 어떻게 답했나(처리 단계·판정·시간) ④ outcome별 본문.
  * 좁은 화면(<720px)에서는 ①을 늘 보이고, 나머지를 [결과 | 그래프 | 처리 과정] 전환으로 나눈다.
- * 생성 모델이 꺼진 경우(generated_by=fallback)는 outcome과 별개로 맨 위 배너를 띄운다.
  */
 export function OutcomeView({
   response,
@@ -85,7 +84,8 @@ export function OutcomeView({
   const [view, setView] = useState<View>("result");
   const [focus, setFocus] = useState<CiteTarget | null>(null);
   const [active, setActive] = useState<number | null>(null);
-  const hasProcess = response.trace !== null;
+  const hasProcess =
+    response.trace !== null && response.answer.generated_by !== "fallback";
   const hasGraph = response.interpretation.graph.nodes.length > 0;
   const views: View[] = [
     "result",
@@ -93,13 +93,7 @@ export function OutcomeView({
     ...(hasProcess ? (["process"] as const) : []),
   ];
   const tabs = !wide && views.length > 1;
-
-  const banner = response.answer.generated_by === "fallback" && (
-    <div className="banner banner--warn" role="status">
-      <Icon name="alert" size={16} />
-      답변 생성 모델이 꺼져 있어 조회 결과만 보여줍니다.
-    </div>
-  );
+  const visibleView = views.includes(view) ? view : "result";
 
   const body = (
     <OutcomeBody
@@ -121,7 +115,6 @@ export function OutcomeView({
   return (
     <CiteFocusContext.Provider value={{ focus, setFocus }}>
       <MappingFocusContext.Provider value={{ active, setActive }}>
-        {banner}
         <InterpretationCard response={response} />
         {tabs ? (
           <>
@@ -132,7 +125,7 @@ export function OutcomeView({
                   type="button"
                   role="tab"
                   id={`tab-${key}`}
-                  aria-selected={view === key}
+                  aria-selected={visibleView === key}
                   aria-controls={`panel-${key}`}
                   className="seg__tab"
                   onClick={() => setView(key)}
@@ -143,11 +136,11 @@ export function OutcomeView({
             </div>
             <div
               role="tabpanel"
-              id={`panel-${view}`}
-              aria-labelledby={`tab-${view}`}
+              id={`panel-${visibleView}`}
+              aria-labelledby={`tab-${visibleView}`}
               className="seg__panel"
             >
-              {panel[view]}
+              {panel[visibleView]}
             </div>
           </>
         ) : (
