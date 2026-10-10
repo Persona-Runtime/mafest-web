@@ -384,7 +384,18 @@ button:disabled:hover {
   min-height: 44px;
   border: 0;
   background: transparent;
+  /* 홈의 어두운 hero 글자색을 상속하면 흰 검색창에서 입력 내용이 보이지 않는다. */
+  color: var(--ink);
+  -webkit-text-fill-color: var(--ink);
+  caret-color: var(--ink);
   font-size: var(--text-l);
+}
+
+.searchbox__input::placeholder {
+  color: var(--muted);
+  -webkit-text-fill-color: var(--muted);
+  /* 브라우저 기본 투명도를 없애 같은 토큰 대비를 그대로 유지한다. */
+  opacity: 1;
 }
 
 /* 감싸는 상자가 포커스 링을 대신 그린다(.searchbox:focus-within). */
