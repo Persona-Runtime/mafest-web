@@ -173,4 +173,13 @@ describe("products · meta", () => {
     const result = await httpApi.getMeta();
     expect(result.examples.length).toBe(6);
   });
+
+  test("meta의 예시가 4개여도 그대로 읽는다", async () => {
+    const examples = meta.examples.slice(0, 4);
+    respond(200, { ...meta, examples });
+
+    const result = await httpApi.getMeta();
+
+    expect(result.examples).toEqual(examples);
+  });
 });

@@ -14,7 +14,7 @@ import { ApiError } from "./types";
  * 실행(P7 이후, 로컬 또는 port-forward한 mafest-api):
  *   MAFEST_LIVE_API=http://127.0.0.1:18080 npx vitest run src/lib/api.live.test.ts
  *
- * 읽기만 한다. 검색 6회 이상 + 상세 1회라 요청 제한(분당 6)에 걸릴 수 있다 — 공개 URL이
+ * 읽기만 한다. 예시 최대 6회 + 상세용 검색 1회라 요청 제한(분당 6)에 걸릴 수 있다 — 공개 URL이
  * 아니라 내부 주소(port-forward)로 돌린다.
  *
  * skip과 실패를 구분한다.
@@ -50,16 +50,20 @@ describe.skipIf(!live)("실제 mafest-api 계약", () => {
       )) as typeof fetch;
   });
 
-  test("meta가 계약을 지키고 예시 칩이 6개다", async () => {
+  test("meta가 계약을 지키고 예시 칩이 1~6개다", async () => {
     const meta = await httpApi.getMeta();
-    expect(meta.examples).toHaveLength(6);
+    expect(meta.examples.length).toBeGreaterThan(0);
+    expect(meta.examples.length).toBeLessThanOrEqual(6);
     expect(meta.domains.length).toBeGreaterThan(0);
   });
 
   test("예시 칩 질문이 모두 기대 outcome을 낸다(37 W6)", async () => {
     const meta = await httpApi.getMeta();
     // 예시가 0개면 아래 반복문이 한 번도 돌지 않고 통과한다. 개수를 먼저 확인한다.
-    expect(meta.examples, "meta.examples가 6개가 아니다").toHaveLength(6);
+    expect(meta.examples.length, "meta.examples가 비어 있다").toBeGreaterThan(
+      0,
+    );
+    expect(meta.examples.length).toBeLessThanOrEqual(6);
     for (const example of meta.examples) {
       const result = await httpApi.search(example.question);
       expect
