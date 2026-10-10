@@ -21,7 +21,7 @@ export function BaseDates({ response }: { response: SearchResponse }) {
 
 /**
  * 답변 문장. 서버 문장은 텍스트 그대로 그린다(Markdown·HTML 해석 안 함).
- * 문장을 누가 만들었는지(LLM/정형/조회만) 배지로 숨기지 않고 보여준다.
+ * 내부 대체 경로는 배지로 알리지 않으며, AI 생성 문장으로도 표시하지 않는다.
  */
 export function AnswerCard({
   response,
@@ -43,11 +43,11 @@ export function AnswerCard({
               주의
             </span>
           )}
-          <span
-            className={`badge ${answer.generated_by === "fallback" ? "badge--warn" : "badge--plain"}`}
-          >
-            {GENERATED_LABEL[answer.generated_by]}
-          </span>
+          {answer.generated_by !== "fallback" && (
+            <span className="badge badge--plain">
+              {GENERATED_LABEL[answer.generated_by]}
+            </span>
+          )}
           <BaseDates response={response} />
         </span>
       </header>
